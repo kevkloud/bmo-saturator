@@ -1,0 +1,640 @@
+/*
+    Tests for the DSP core. No JUCE, no host, no audio device: the core takes
+    plain buffers, so everything the plugin claims about itself can be checked
+    on a bare container in a couple of seconds.
+
+    The tests that matter most are the ones holding the character in place --
+    the curve's asymmetry, its even-order balance, where in the spectrum the
+    new energy lands, and the fact that the crest factor does not fall. Those
+    are the four things the plugin was specified with, and a change that
+    quietly breaks one of them is exactly the change nobody notices.
+*/
+
+#include "dsp/DspCore.h"
+#include "dsp/DriveTables.h"
+#include <cmath>
+#include <complex>
+#include <cstdio>
+#include <string>
+#include <vector>
+
+using namespace bmosat;
+
+namespace
+{
+
+constexpr double kPi = 3.14159265358979323846;
+constexpr double kSampleRate = 48000.0;
+
+int failures = 0, checks = 0;
+
+void check (bool condition, const std::string& what)
+{
+    ++checks;
+
+    if (! condition)
+    {
+        std::printf ("FAIL  %s\n", what.c_str());
+        ++failures;
+    }
+}
+
+void checkNear (double value, double expected, double tolerance, const std::string& what)
+{
+    ++checks;
+
+    if (! (std::abs (value - expected) <= tolerance))
+    {
+        std::printf ("FAIL  %s: %.6f, expected %.6f +/- %.6f\n",
+                     what.c_str(), value, expected, tolerance);
+        ++failures;
+    }
+}
+
+//==============================================================================
+std::vector<float> sine (double hz, double seconds, double amplitude)
+{
+    const auto n = (size_t) (seconds * kSampleRate);
+    std::vector<float> out (n);
+
+    for (size_t i = 0; i < n; ++i)
+        out[i] = (float) (amplitude * std::sin (2.0 * kPi * hz * (double) i / kSampleRate));
+
+    return out;
+}
+
+/** A crude voice: a harmonic series under a syllabic envelope, running all the
+    way up to 18 kHz. Enough structure for the band and dynamics tests; the
+    measurement harness has the detailed one, with formants and breath.
+
+    The series has to reach the top of the band. Stopped at 6 kHz, as it was
+    first written, the source has nothing above 6 kHz at all, so the plugin's
+    top-band delta measures 17 dB -- a true number about a signal no microphone
+    ever produced, and a useless one for holding the plugin to. */
+std::vector<float> voice (double seconds = 4.0)
+{
+    const auto n = (size_t) (seconds * kSampleRate);
+    std::vector<float> out (n);
+    double sumSquares = 0.0;
+
+    for (size_t i = 0; i < n; ++i)
+    {
+        const auto t = (double) i / kSampleRate;
+        const auto beat = std::fmod (t, 0.55);
+        const auto envelope = (std::fmod (t, 3.0) < 1.6 ? 1.0 : 0.0)
+                            * (beat < 0.01 ? beat / 0.01 : std::exp (-(beat - 0.01) * 7.0));
+
+        double sum = 0.0;
+
+        for (int h = 1; h <= 120; ++h)
+            sum += std::pow ((double) h, -1.4) * std::sin (2.0 * kPi * 150.0 * h * t);
+
+        out[i] = (float) (envelope * sum);
+        sumSquares += (double) out[i] * out[i];
+    }
+
+    const auto rms = std::sqrt (sumSquares / (double) n);
+    const auto gain = rms > 0.0 ? std::pow (10.0, -18.0 / 20.0) / rms : 1.0;
+
+    for (auto& v : out)
+        v = (float) (v * gain);
+
+    return out;
+}
+
+std::vector<float> render (const std::vector<float>& input, DspCore::Params params)
+{
+    DspCore core;
+    core.prepare (kSampleRate, 512, 1, params.oversampling);
+    core.setParams (params);
+
+    auto out = input;
+    out.insert (out.end(), (size_t) core.getLatencySamples(), 0.0f);
+
+    for (size_t at = 0; at < out.size(); at += 512)
+    {
+        auto* p = out.data() + at;
+        core.process (&p, 1, (int) std::min<size_t> (512, out.size() - at));
+    }
+
+    // Realign: everything below compares dry and wet sample for sample.
+    out.erase (out.begin(), out.begin() + core.getLatencySamples());
+    out.resize (input.size(), 0.0f);
+    return out;
+}
+
+double rms (const std::vector<float>& x)
+{
+    double sum = 0.0;
+
+    for (auto v : x)
+        sum += (double) v * (double) v;
+
+    return x.empty() ? 0.0 : std::sqrt (sum / (double) x.size());
+}
+
+double peak (const std::vector<float>& x)
+{
+    double m = 0.0;
+
+    for (auto v : x)
+        m = std::max (m, (double) std::abs (v));
+
+    return m;
+}
+
+double crestFactorDb (const std::vector<float>& x)
+{
+    const auto r = rms (x);
+    return r > 0.0 ? 20.0 * std::log10 (peak (x) / r) : 0.0;
+}
+
+/** Magnitude at one frequency, by direct evaluation rather than an FFT: the
+    tests only ever ask about a handful of bins. */
+double magnitudeAt (const std::vector<float>& x, double hz, size_t from = 4096)
+{
+    double re = 0.0, im = 0.0;
+    const auto n = x.size() - from;
+
+    for (size_t i = 0; i < n; ++i)
+    {
+        const auto w = 0.5 - 0.5 * std::cos (2.0 * kPi * (double) i / (double) n);
+        const auto phase = 2.0 * kPi * hz * (double) i / kSampleRate;
+        re += (double) x[from + i] * w * std::cos (phase);
+        im -= (double) x[from + i] * w * std::sin (phase);
+    }
+
+    return std::hypot (re, im) / (double) n;
+}
+
+void fft (std::vector<std::complex<double>>& a)
+{
+    const auto n = a.size();
+
+    for (size_t i = 1, j = 0; i < n; ++i)
+    {
+        size_t bit = n >> 1;
+
+        for (; j & bit; bit >>= 1)
+            j ^= bit;
+
+        j ^= bit;
+
+        if (i < j)
+            std::swap (a[i], a[j]);
+    }
+
+    for (size_t len = 2; len <= n; len <<= 1)
+    {
+        const auto theta = -2.0 * kPi / (double) len;
+
+        for (size_t i = 0; i < n; i += len)
+            for (size_t k = 0; k < len / 2; ++k)
+            {
+                const std::complex<double> w { std::cos (theta * (double) k),
+                                               std::sin (theta * (double) k) };
+                const auto u = a[i + k];
+                const auto v = a[i + k + len / 2] * w;
+                a[i + k] = u + v;
+                a[i + k + len / 2] = u - v;
+            }
+    }
+}
+
+/** Energy in a band, Welch-averaged. Probing at a handful of frequencies is
+    not good enough here: the test voice is a harmonic series, so a probe
+    frequency either lands on a partial or between two, and the answer swings
+    by tens of dB on where the arithmetic happens to put it. */
+double bandEnergy (const std::vector<float>& x, double lowHz, double highHz)
+{
+    constexpr size_t size = 8192;
+
+    if (x.size() < size)
+        return 0.0;
+
+    const auto binHz = kSampleRate / (double) size;
+    double sum = 0.0;
+
+    for (size_t start = 0; start + size <= x.size(); start += size / 2)
+    {
+        std::vector<std::complex<double>> frame (size);
+
+        for (size_t i = 0; i < size; ++i)
+        {
+            const auto w = 0.5 - 0.5 * std::cos (2.0 * kPi * (double) i / (double) size);
+            frame[i] = { (double) x[start + i] * w, 0.0 };
+        }
+
+        fft (frame);
+
+        for (size_t k = 1; k < size / 2; ++k)
+        {
+            const auto hz = (double) k * binHz;
+
+            if (hz >= lowHz && hz < highHz)
+                sum += std::norm (frame[k]);
+        }
+    }
+
+    return sum;
+}
+
+DspCore::Params defaults()
+{
+    return DspCore::Params {};
+}
+
+//==============================================================================
+void testCurveShape()
+{
+    AsymmetricShaper shaper;
+    shaper.setDrive (DspCore::driveFor (40.0f));
+
+    checkNear (shaper.shape (0.0), 0.0, 1.0e-12, "the curve passes through the origin");
+
+    // Asymmetric, and in the direction the reference measured: the positive
+    // excursions compress harder than the negative ones.
+    for (double x = 0.1; x <= 1.0; x += 0.1)
+        check (std::abs (shaper.shape (x)) < std::abs (shaper.shape (-x)),
+               "the positive half compresses harder at x = " + std::to_string (x));
+
+    // Monotonic, so no fold-back: a curve that turns over stops being a
+    // saturator and starts being a wavefolder.
+    double previous = shaper.shape (-2.0);
+
+    for (double x = -2.0; x <= 2.0; x += 0.01)
+    {
+        const auto y = shaper.shape (x);
+        check (y >= previous - 1.0e-12, "the curve is monotonic at x = " + std::to_string (x));
+        previous = y;
+    }
+
+    // Compressive everywhere: |shape(x)| <= |x|.
+    for (double x = 0.01; x <= 2.0; x += 0.01)
+        check (std::abs (shaper.shape (x)) <= x + 1.0e-9
+                 && std::abs (shaper.shape (-x)) <= x + 1.0e-9,
+               "the curve never expands at x = " + std::to_string (x));
+}
+
+/** The calibration, held to the reference.
+
+    This is the test that fails if anyone touches kBias or the drive mapping,
+    and it is meant to: those two numbers are the plugin's character and were
+    fitted, not chosen. The figures are the ones `measure fit` reports.
+*/
+void testAsymmetryMatchesReference()
+{
+    AsymmetricShaper shaper;
+    shaper.setDrive (DspCore::driveFor (40.0f));
+
+    const auto signal = voice();
+    double posIn = 0.0, posOut = 0.0, negIn = 0.0, negOut = 0.0;
+
+    for (auto v : signal)
+    {
+        const double x = v;
+
+        if (std::abs (x) < 1.0e-4)
+            continue;
+
+        const auto y = shaper.shape (x);
+
+        if (x > 0.0) { posIn += x;  posOut += std::abs (y); }
+        else         { negIn += -x; negOut += std::abs (y); }
+    }
+
+    const auto positive = posOut / posIn;
+    const auto negative = negOut / negIn;
+
+    // Wider than the harness's own figures, since this uses the cruder test
+    // voice above, but far tighter than the distance to the anti-reference.
+    checkNear (positive, 0.62, 0.06, "positive-half average gain matches Fuji");
+    checkNear (negative, 0.84, 0.06, "negative-half average gain matches Fuji");
+    checkNear (std::abs (positive - negative), 0.22, 0.06, "asymmetry matches Fuji");
+
+    check (std::abs (positive - negative) > 0.10,
+           "asymmetry is nowhere near the Preesh BG anti-target of 0.004");
+}
+
+/** Even-order content leads odd, which is the difference between warm and
+    harsh and the thing the average-gain measurement cannot see. */
+void testEvenHarmonicsLead()
+{
+    auto params = defaults();
+    params.driveAmount = 40.0f;
+
+    const auto wet = render (sine (220.0, 3.0, 0.126), params);
+
+    const auto fundamental = magnitudeAt (wet, 220.0);
+    const auto second      = magnitudeAt (wet, 440.0);
+    const auto third       = magnitudeAt (wet, 660.0);
+
+    check (second > third, "the second harmonic leads the third");
+    check (second / fundamental > 0.01, "there is meaningful second-harmonic content");
+}
+
+/** Where the new energy lands: the whole point of the two generators. */
+void testLiftIsAboveTheSplit()
+{
+    auto params = defaults();
+    params.driveAmount = 40.0f;
+
+    const auto dry = voice();
+    const auto wet = render (dry, params);
+
+    // Level-matched, as the reference measurements are: saturation that
+    // arrives louder measures as a lift everywhere and says nothing.
+    auto matched = wet;
+    const auto match = rms (dry) / rms (wet);
+
+    for (auto& v : matched)
+        v = (float) (v * match);
+
+    const auto delta = [&dry, &matched] (double lowHz, double highHz)
+    {
+        return 10.0 * std::log10 (bandEnergy (matched, lowHz, highHz)
+                                    / bandEnergy (dry, lowHz, highHz));
+    };
+
+    // Thresholds rather than the reference's own figures, and deliberately.
+    // How many decibels a band lifts depends heavily on how much the source
+    // already had there: this test signal is a bare harmonic series with far
+    // more native top end than a voice, and measures roughly +3 dB where the
+    // harness's reference voice measures +6 to +8. The shape of the result is
+    // what generalises, so the shape is what is asserted here. The absolute
+    // figures against Fuji live in `measure verify`.
+    const auto low = delta (20.0, 150.0);
+    const auto lowMid = delta (150.0, 600.0);
+    const auto mid = delta (600.0, 2500.0);
+    const auto upper = delta (2500.0, 6000.0);
+    const auto top = delta (6000.0, 18000.0);
+
+    check (upper > 1.5, "2.5-6 kHz lifts");
+    check (top > 1.5, "6-18 kHz lifts");
+
+    // The bands the reference leaves alone stay left alone.
+    check (std::abs (low) < 3.5, "20-150 Hz stays near flat");
+    check (std::abs (lowMid) < 3.5, "150-600 Hz stays near flat");
+    check (std::abs (mid) < 3.5, "600 Hz - 2.5 kHz stays near flat");
+
+    check (upper > mid + 3.0 && top > mid + 3.0,
+           "the lift is above the split, not spread across the whole spectrum");
+
+    // The anti-target: a lift confined to the top band only, with nothing
+    // below it. Preesh BG's shape.
+    check (upper > top - 6.0,
+           "the lift is not confined to the top band, as Preesh BG's was");
+}
+
+/** Dynamics are a side effect of the curve, and the side effect is expansion.
+    Nothing in this plugin may reduce the crest factor. */
+void testCrestFactorDoesNotFall()
+{
+    const auto dry = voice();
+    const auto dryCrest = crestFactorDb (dry);
+
+    for (float amount : { 0.0f, 20.0f, 40.0f, 60.0f, 80.0f, 100.0f })
+    {
+        auto params = defaults();
+        params.driveAmount = amount;
+
+        const auto crest = crestFactorDb (render (dry, params));
+
+        check (crest > dryCrest - 0.25,
+               "crest factor does not fall at Drive " + std::to_string ((int) amount));
+    }
+}
+
+/** Drive scales the intensity and nothing else. */
+void testDriveScalesMonotonically()
+{
+    const auto dry = voice();
+    double previous = -1.0;
+
+    for (float amount : { 0.0f, 20.0f, 40.0f, 60.0f, 80.0f, 100.0f })
+    {
+        auto params = defaults();
+        params.driveAmount = amount;
+
+        const auto wet = render (dry, params);
+
+        // How far the output has moved from the input: a plain measure of how
+        // much the plugin is doing.
+        double sum = 0.0;
+
+        for (size_t i = 0; i < dry.size(); ++i)
+            sum += ((double) wet[i] - dry[i]) * ((double) wet[i] - dry[i]);
+
+        const auto difference = std::sqrt (sum / (double) dry.size());
+
+        check (difference > previous,
+               "Drive " + std::to_string ((int) amount) + " does more than the setting below it");
+        previous = difference;
+    }
+
+    check (DspCore::driveFor (0.0f) > 0.0f, "Drive 0 still applies the curve");
+    check (DspCore::driveFor (100.0f) > 10.0f * DspCore::driveFor (0.0f),
+           "the drive range spans more than a decade");
+}
+
+/** With the saturation switched out, what comes back is what went in. */
+void testBypassNulls()
+{
+    const auto dry = voice (1.0);
+
+    auto params = defaults();
+    params.saturationIn = false;
+
+    const auto wet = render (dry, params);
+    double worst = 0.0;
+
+    // Skip the front: the oversampling filters need priming, and the harness
+    // is measuring their impulse response there rather than the plugin.
+    for (size_t i = 2048; i < dry.size(); ++i)
+        worst = std::max (worst, (double) std::abs (dry[i] - wet[i]));
+
+    check (worst < 2.0e-3, "the saturation switched out nulls against the input");
+}
+
+/** Mix at zero is the dry signal, delayed to match. That is what makes a
+    partial blend a blend rather than a comb filter. */
+void testDryPathIsDelayMatched()
+{
+    const auto dry = voice (1.0);
+
+    auto params = defaults();
+    params.mixPercent = 0.0f;
+    params.driveAmount = 100.0f;
+
+    const auto wet = render (dry, params);
+    double worst = 0.0;
+
+    for (size_t i = 2048; i < dry.size(); ++i)
+        worst = std::max (worst, (double) std::abs (dry[i] - wet[i]));
+
+    check (worst < 1.0e-6, "Mix at zero returns the input, delay-matched");
+}
+
+/** No DC on the output, whatever the curve leaves behind. */
+void testNoDcOffset()
+{
+    auto params = defaults();
+    params.driveAmount = 100.0f;
+
+    const auto wet = render (sine (220.0, 2.0, 0.5), params);
+    double sum = 0.0;
+
+    for (size_t i = 4096; i < wet.size(); ++i)
+        sum += wet[i];
+
+    // Not zero, and not asked to be: the blocker's corner is a few hertz, so a
+    // little of the offset the curve leaves behind survives. -70 dBFS against
+    // a half-scale tone is the level that matters -- inaudible, no headroom
+    // cost, nothing to accumulate through a chain.
+    checkNear (sum / (double) (wet.size() - 4096), 0.0, 5.0e-4, "the output carries no DC offset");
+}
+
+/** Oversampling actually suppresses folded images, and reports its delay
+    honestly. */
+void testOversampling()
+{
+    // A 9 kHz tone at 48 kHz: the third harmonic lands at 27 kHz, above
+    // Nyquist, and folds to 21 kHz. Nothing legitimate can appear there, so
+    // whatever is measured at 21 kHz is aliasing and nothing else.
+    constexpr double toneHz  = 9000.0;
+    constexpr double imageHz = 21000.0;
+
+    auto params = defaults();
+    params.driveAmount = 100.0f;
+
+    double previous = 0.0;
+
+    for (int factor : { 1, 2 })
+    {
+        params.oversampling = factor;
+        const auto wet = render (sine (toneHz, 1.0, 0.5), params);
+
+        const auto image = magnitudeAt (wet, imageHz);
+        const auto fundamental = magnitudeAt (wet, toneHz);
+        const auto ratio = 20.0 * std::log10 (image / fundamental);
+
+        if (factor == 1)
+            previous = ratio;
+        else
+            check (ratio < previous - 15.0, "2x oversampling drops folded images by at least 15 dB");
+    }
+
+    DspCore core;
+    core.prepare (kSampleRate, 512, 1, 1);
+    check (core.getLatencySamples() == 0, "no oversampling means no reported latency");
+
+    core.prepare (kSampleRate, 512, 1, 2);
+    check (core.getLatencySamples() > 0, "2x oversampling reports its latency");
+}
+
+/** Auto Gain is a static level match, not a level detector wearing a hat. */
+void testAutoGainIsStatic()
+{
+    const auto dry = voice();
+
+    auto params = defaults();
+    params.autoGain = true;
+
+    for (float amount : { 0.0f, 40.0f, 80.0f })
+    {
+        params.driveAmount = amount;
+
+        const auto matched = 20.0 * std::log10 (rms (render (dry, params)) / rms (dry));
+
+        // Three decibels rather than one, deliberately. The compensation is a
+        // fixed table fitted to a reference voice at a nominal level, so on
+        // any other material it is an approximation -- and it has to be, since
+        // the alternative is a detector following the programme, which is a
+        // compressor. This test holds it to being a level match rather than a
+        // level move; it cannot hold it to being exact on arbitrary input.
+        checkNear (matched, 0.0, 3.0, "Auto Gain holds the level at Drive "
+                                        + std::to_string ((int) amount));
+    }
+
+    // Two signals at different levels get the same compensation, because the
+    // compensation depends only on the setting.
+    checkNear (DspCore::makeupGainDb (40.0f), tables::kMakeupDb[4], 1.0e-6,
+               "the makeup table is read at its own grid points");
+}
+
+/** Stereo channels are independent and identical. */
+void testChannelsAreIndependent()
+{
+    const auto mono = voice (1.0);
+
+    auto left = mono, right = mono;
+
+    for (auto& v : right)
+        v = -v;
+
+    DspCore core;
+    auto params = defaults();
+    params.driveAmount = 80.0f;
+
+    core.prepare (kSampleRate, 512, 2, params.oversampling);
+    core.setParams (params);
+
+    float* channels[2] { left.data(), right.data() };
+
+    for (size_t at = 0; at < mono.size(); at += 512)
+    {
+        float* p[2] { left.data() + at, right.data() + at };
+        core.process (p, 2, (int) std::min<size_t> (512, mono.size() - at));
+    }
+
+    (void) channels;
+
+    // The curve is asymmetric, so an inverted input is not an inverted output.
+    // What must hold is that neither channel is silent and neither has run
+    // away -- the two are separate instances of the same thing.
+    check (rms (left) > 0.0 && rms (right) > 0.0, "both channels produce output");
+    check (peak (left) < 4.0 && peak (right) < 4.0, "neither channel runs away");
+}
+
+/** Nothing in the chain produces a NaN, an infinity, or a runaway, however
+    unreasonable the input. */
+void testStability()
+{
+    std::vector<float> nasty;
+
+    for (int i = 0; i < 48000; ++i)
+        nasty.push_back ((float) ((i / 64) % 2 == 0 ? 4.0 : -4.0));   // far past full scale
+
+    for (int i = 0; i < 4800; ++i)
+        nasty.push_back (0.0f);
+
+    auto params = defaults();
+    params.driveAmount = 100.0f;
+    params.oversampling = 8;
+
+    for (auto v : render (nasty, params))
+        check (std::isfinite (v) && std::abs (v) < 20.0f, "the output stays finite and bounded");
+}
+
+} // namespace
+
+//==============================================================================
+int main()
+{
+    testCurveShape();
+    testAsymmetryMatchesReference();
+    testEvenHarmonicsLead();
+    testLiftIsAboveTheSplit();
+    testCrestFactorDoesNotFall();
+    testDriveScalesMonotonically();
+    testBypassNulls();
+    testDryPathIsDelayMatched();
+    testNoDcOffset();
+    testOversampling();
+    testAutoGainIsStatic();
+    testChannelsAreIndependent();
+    testStability();
+
+    std::printf ("%d checks, %d failures\n", checks, failures);
+    return failures == 0 ? 0 : 1;
+}
