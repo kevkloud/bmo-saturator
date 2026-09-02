@@ -133,4 +133,18 @@ if(NOT BMO_DSP_ONLY)
         juce::juce_recommended_warning_flags)
 
     add_test(NAME parameters COMMAND BmoParameterTests)
+
+    # Renders the panel to a PNG with no display attached, so a layout change
+    # can be reviewed in a pull request rather than described in one.
+    add_executable(snapshot tools/snapshot/main.cpp)
+    target_include_directories(snapshot PRIVATE src)
+    target_link_libraries(snapshot PRIVATE
+        BMOSaturator
+        juce::juce_audio_utils
+        juce::juce_audio_processors
+        juce::juce_gui_basics
+        juce::juce_dsp
+        juce::juce_events
+        juce::juce_recommended_config_flags
+        juce::juce_recommended_warning_flags)
 endif()

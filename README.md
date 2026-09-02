@@ -10,11 +10,18 @@ new energy lands in the 2.5 kHz to 18 kHz octaves while everything below stays
 within a decibel of where it started, and the crest factor comes out slightly
 *up*. There is no compressor, limiter, or peak reduction anywhere in it.
 
+![The panel](docs/ui.png)
+
 ## Status
 
 Builds as VST3, AU, and Standalone, and passes its own test suite. Not yet
 checked by ear against the reference material, which is the only test that
 finally matters — see [Verifying by ear](#verifying-by-ear).
+
+**Downloads:** macOS (universal, VST3 + AU) and Windows (VST3) builds are
+attached to each [release](https://github.com/kevkloud/bmo-saturator/releases).
+Neither is code-signed yet, so both operating systems will complain the first
+time — see the release notes for the two-click way past it.
 
 ## Measured
 

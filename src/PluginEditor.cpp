@@ -10,10 +10,12 @@ namespace
     constexpr int kPresetRow = 24;
     constexpr int kPad       = 10;
 
-    constexpr int kRuleRow   = 18;
-    constexpr int kGainRow   = 104;   // knob plus the name under it
-    constexpr int kDriveRow  = 178;   // the one control that gets room
-    constexpr int kSwitchRow = 34;
+    constexpr int kRuleRow   = 22;
+    constexpr int kGainRow   = 106;   // knob plus the name under it
+    constexpr int kMixRow    = 118;
+    constexpr int kDriveRow  = 192;   // the one control that gets room
+    constexpr int kSwitchRow = 44;
+    constexpr int kOutputRow = 130;
 
     // One size for all three switches. Three different widths makes them read
     // as three unrelated things rather than a row of switches.
@@ -27,8 +29,8 @@ namespace
 BmoSaturatorAudioProcessorEditor::Panel::Panel (BmoSaturatorAudioProcessor& p)
     : presetBar   (p.getPresets()),
       inputGain   (p.getApvts(), P::kInputGain,   "INPUT"),
-      drive       (p.getApvts(), P::kDrive,       "DRIVE", Knob::Style::drive, 0.34f),
-      mix         (p.getApvts(), P::kMix,         "MIX",   Knob::Style::drive, 0.50f),
+      drive       (p.getApvts(), P::kDrive,       "DRIVE", Knob::Style::drive, 0.66f),
+      mix         (p.getApvts(), P::kMix,         "MIX",   Knob::Style::drive, 0.46f),
       outputLevel (p.getApvts(), P::kOutputLevel, "OUTPUT"),
       satIn    (p.getApvts(), P::kSatIn,    "SAT"),
       phase    (p.getApvts(), P::kPhase,    phaseGlyph),
@@ -100,13 +102,17 @@ void BmoSaturatorAudioProcessorEditor::Panel::resized()
 
     inputGain.setBounds (area.removeFromTop (kGainRow));
 
+    // A little air between a control's name and the legend of the section
+    // below it, or the two read as one block of text.
+    area.removeFromTop (6);
+
     // Drive is the plugin. It gets the middle of the panel and the largest
     // face, and the eye should land on it before anything else.
     rule ("SATURATION", true);
     drive.setBounds (area.removeFromTop (kDriveRow));
 
     rule ("BLEND", true);
-    mix.setBounds (area.removeFromTop (kGainRow));
+    mix.setBounds (area.removeFromTop (kMixRow));
 
     rule ({}, true);
 
@@ -127,7 +133,7 @@ void BmoSaturatorAudioProcessorEditor::Panel::resized()
         // meter is not a knob and does not join it: it goes out to the right
         // margin, where it reads as an indicator beside the strip rather than
         // as something that shoves the output knob off the axis.
-        auto bottom = area.removeFromTop (kGainRow);
+        auto bottom = area.removeFromTop (kOutputRow);
 
         meter.setBounds (bottom.withTrimmedTop (4).withTrimmedBottom (22).removeFromRight (44));
         outputLevel.setBounds (bottom);

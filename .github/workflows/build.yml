@@ -1,10 +1,13 @@
 name: build
 
 on:
+  # No paths-ignore on push, deliberately. A tag is a push, and a tag whose
+  # commit happens to touch only documentation still has to produce a release:
+  # filtering paths here would silently skip it, and the failure mode is a
+  # release that never appears rather than one that breaks.
   push:
     branches: [main]
     tags: ['v*']
-    paths-ignore: ['**.md', 'docs/**']
   pull_request:
     paths-ignore: ['**.md', 'docs/**']
   workflow_dispatch:
@@ -127,10 +130,58 @@ jobs:
           cp -R "$vst3" out/
           au=$(find build -type d -name 'BMO Saturator.component' | head -1)
           if [ -n "$au" ]; then cp -R "$au" out/; fi
+          app=$(find build -type d -name 'BMO Saturator.app' | head -1)
+          if [ -n "$app" ]; then cp -R "$app" out/; fi
           cp LICENSE out/LICENSE.txt
+          cp docs/INSTALL.md out/
           ls -la out/
+
+      # Zipped here rather than by upload-artifact, which does not preserve the
+      # executable bit or a macOS bundle's symlinks -- a .vst3 that has been
+      # through its zipping arrives unloadable.
+      - name: Package
+        shell: bash
+        run: |
+          name="BMO-Saturator-${{ matrix.name }}"
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            ditto -c -k --sequesterRsrc --keepParent out "$name.zip"
+          else
+            powershell -Command "Compress-Archive -Path out\\* -DestinationPath '$name.zip'"
+          fi
+          ls -la *.zip
 
       - uses: actions/upload-artifact@v4
         with:
           name: BMOSaturator-${{ matrix.name }}
-          path: out/
+          path: '*.zip'
+
+  # Tags only: gather both platforms' zips into a release someone can be sent a
+  # link to. Nothing here is code-signed, which is why the notes spend as much
+  # space on getting past Gatekeeper and SmartScreen as on the plugin.
+  release:
+    name: Release
+    needs: [dsp, plugin]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect
+        run: |
+          mkdir -p release
+          find artifacts -name '*.zip' -exec cp {} release/ \;
+          ls -la release
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" release/*.zip \
+            --title "BMO Saturator ${{ github.ref_name }}" \
+            --notes-file docs/RELEASE_NOTES.md
