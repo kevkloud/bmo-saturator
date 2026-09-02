@@ -119,22 +119,32 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
-      # Located rather than hardcoded: a renamed artefact directory is the kind
-      # of thing that silently breaks this step.
+      # Bundles are located rather than hardcoded: a renamed artefact directory
+      # is the kind of thing that silently breaks this step. The staging folder
+      # is named for the product rather than "out", since it is what someone
+      # sees after double-clicking the zip.
       - name: Stage artefacts
         shell: bash
         run: |
-          mkdir -p out
+          out="BMO Saturator"
+          mkdir -p "$out"
+
           vst3=$(find build -type d -name 'BMO Saturator.vst3' | head -1)
           if [ -z "$vst3" ]; then echo "no VST3 produced"; find build -name '*.vst3' -o -name '*_artefacts' | head -20; exit 1; fi
-          cp -R "$vst3" out/
+          cp -R "$vst3" "$out/"
+
           au=$(find build -type d -name 'BMO Saturator.component' | head -1)
-          if [ -n "$au" ]; then cp -R "$au" out/; fi
+          if [ -n "$au" ]; then cp -R "$au" "$out/"; fi
+
+          # The standalone is a bundle on macOS and a bare .exe on Windows.
           app=$(find build -type d -name 'BMO Saturator.app' | head -1)
-          if [ -n "$app" ]; then cp -R "$app" out/; fi
-          cp LICENSE out/LICENSE.txt
-          cp docs/INSTALL.md out/
-          ls -la out/
+          if [ -n "$app" ]; then cp -R "$app" "$out/"; fi
+          exe=$(find build -type f -name 'BMO Saturator.exe' | head -1)
+          if [ -n "$exe" ]; then cp "$exe" "$out/"; fi
+
+          cp LICENSE "$out/LICENSE.txt"
+          cp docs/INSTALL.md "$out/"
+          ls -la "$out/"
 
       # Zipped here rather than by upload-artifact, which does not preserve the
       # executable bit or a macOS bundle's symlinks -- a .vst3 that has been
@@ -144,9 +154,9 @@ jobs:
         run: |
           name="BMO-Saturator-${{ matrix.name }}"
           if [ "${{ runner.os }}" = "macOS" ]; then
-            ditto -c -k --sequesterRsrc --keepParent out "$name.zip"
+            ditto -c -k --sequesterRsrc --keepParent "BMO Saturator" "$name.zip"
           else
-            powershell -Command "Compress-Archive -Path out\\* -DestinationPath '$name.zip'"
+            powershell -Command "Compress-Archive -Path 'BMO Saturator' -DestinationPath '$name.zip'"
           fi
           ls -la *.zip
 

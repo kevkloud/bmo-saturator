@@ -36,11 +36,14 @@ Both Apple Silicon and Intel are in the same binary.
 
 ## Windows
 
-The zip contains `BMO Saturator.vst3`. Copy it to:
+The zip contains `BMO Saturator.vst3` and `BMO Saturator.exe`, the standalone.
+Copy the VST3 to:
 
 ```
 C:\Program Files\Common Files\VST3\
 ```
+
+The standalone can live anywhere.
 
 **SmartScreen.** An unsigned download gets "Windows protected your PC" — click
 **More info**, then **Run anyway**. If Windows has marked the zip itself as
