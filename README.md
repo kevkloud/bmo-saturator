@@ -186,6 +186,13 @@ cmake --build build-dsp --parallel
 ctest --test-dir build-dsp --output-on-failure
 ```
 
+## For testers
+
+`docs/TEST_PLAN.md` is the listening plan and the honest list of known gaps,
+written for someone who does not read code — seven tests in order, what to
+report, and what is already known so nobody spends their ears finding it
+again. It ships alongside the binaries.
+
 ## Verifying by ear
 
 The metrics are a strong proxy and not a substitute. To check it properly:
