@@ -1,61 +1,72 @@
-**First build, for feedback.** A saturator fitted to measured targets from a
-real vocal take rather than to a circuit — asymmetric curve, harmonics placed
-in the 2.5–18 kHz octaves, everything below within a decibel of where it
-started, and no compressor or limiter anywhere in it.
+**Second build, from Frosty's Test 1 report and the three files that came with
+it.** The tonal miss he measured was real; this fixes it, and the fix turned
+out not to be the waveshaper.
+
+## What changed
+
+**Fitted to the reference files themselves.** 0.1.0 had been fitted to a
+synthetic test signal carrying 22 dB less energy above 6 kHz than the actual
+vocal, so the same processing measured +8 dB there and +0.4 dB on the real
+take. Measured on the real files now:
+
+| band | target | 0.2.0 | 0.1.0 |
+|---|---|---|---|
+| 20–150 Hz | −1.22 dB | −0.59 | −0.13 |
+| 150–600 Hz | −1.19 dB | −1.18 | +0.32 |
+| 600 Hz–2.5 kHz | −0.80 dB | −0.98 | −1.47 |
+| **2.5–6 kHz** | **+6.56 dB** | **+6.15** | −0.99 |
+| **6–18 kHz** | **+8.51 dB** | **+8.13** | +0.35 |
+
+**There is a new control, TONE, and it is an equaliser.** Fitting the best
+possible linear filter from the dry file to the Fuji file explains 97 % of what
+Fuji does — a bell of about +10 dB at 7 kHz. Those band lifts are not harmonic
+generation, and no waveshaper reaches them. TONE carries that voicing, on the
+panel with a name rather than hidden inside the curve, and at 0 it is out of
+circuit entirely. Whether the plugin should carry an EQ at all is the biggest
+open question in this build — Test 6 in `TEST PLAN.md` is about exactly that.
+
+**The scratching on DRIVE is fixed.** It was worse than reported: single
+samples over thirty times full scale, five thousand times the largest step the
+music itself was making. Parameter smoothing was already there and could not
+have helped — the smoother is what supplied the changing value; the fault was
+in the anti-aliasing state not being rebuilt when the drive moved. There is now
+a test that sweeps the control at three speeds and checks the audio, rather
+than checking that smoothing code exists.
+
+**Oversampling is Off by default**, at zero reported latency, as asked. The
+curve is anti-aliased by its own maths rather than by rate, so folded images
+sit at −51 dB with oversampling off, −88 dB at 2x, −103 dB at 4x.
 
 ## Downloads
 
 | | contains |
 |---|---|
 | **BMO-Saturator-macOS.zip** | VST3, AU, and a standalone app. Universal — Apple Silicon and Intel. |
-| **BMO-Saturator-Windows.zip** | VST3, 64-bit. |
+| **BMO-Saturator-Windows.zip** | VST3 and a standalone, 64-bit. |
 
-Neither is code-signed, so **both operating systems will complain the first
-time.** `INSTALL.md` inside the zip has the two clicks that get past it —
-System Settings → Privacy & Security → Open Anyway on macOS, More info → Run
-anyway on Windows. Nothing is being hidden from you; a signing certificate is
-just something nobody has bought yet.
+Neither is code-signed, so both operating systems will complain the first time.
+`INSTALL.md` inside the zip has the two clicks that get past it.
 
 ## Where to start
 
-Load it on a vocal, leave **DRIVE** at 40 %, and turn **AUTO** on so you are
-comparing tone rather than loudness. That default is the calibration point: it
-is the exact drive at which the curve reproduces the reference's measured
-asymmetry.
+Preset **Reference** — Drive 40, Tone 100, Auto Gain on. That is the setting
+the fit was made at, and the one that matches the measurements above.
 
-The factory presets are starting points, all level-matched. **Reference** is
-the calibration point itself; **Vocal Sheen** and **Vocal Front** are the two
-directions from it; **Ruined** is the far end and is meant to be.
+Then Test 1 and Test 6 in `TEST PLAN.md`: does it land in the same place as the
+Fuji file by ear, and is the plugin better with the voicing or without it.
 
-## What to listen for, and what to report
+## Still open
 
-This was built to measurements, and the measurements say it is right. Nobody
-has confirmed it by ear against the reference material, which is the only test
-that finally matters — that is what this build is for.
+- **Crest factor opens up more than the reference** — +3.32 dB against +1.67.
+  Both go the right way; this one is livelier. Pulling TONE back reduces it.
+- **The crest factor result in the Test 1 report does not reproduce here.**
+  Every render raises it at every setting, and that bounce does not null against
+  either the dry file or a local render of it — so something else may have been
+  in the chain. Worth checking.
+- **The asymmetry figures in the original brief are not in the files.** Measured
+  on the actual pair, Fuji's average gains are 0.965 / 1.015 — an asymmetry of
+  0.05, not 0.22. Every other figure reproduces exactly.
+- **Still not validated by ear.** By anyone. That is what this build is for.
 
-The specific thing worth your ears: it should read **warm**, not merely
-**bright**. The failure mode it was designed against measures nearly the same
-amount of high end and sounds harsh, because it has the brightness without the
-even-order harmonic content underneath. If this one sounds sizzly, edgy, or
-thin on real material, that is the single most useful thing you can tell us,
-along with the source and the Drive setting.
-
-Also worth flagging: anything above **DRIVE 55**, where the balance tips from
-even-order to odd and it stops being a warm saturator and becomes an overdrive.
-That is intended, but whether the crossover sits in the right place is a
-judgement nobody has made by ear yet.
-
-## Known and deliberate
-
-- **Not signed or notarised.** See above.
-- **Two target bands are missed.** 150 Hz – 600 Hz and 600 Hz – 2.5 kHz come
-  out around flat rather than a decibel down. Closing that costs either the
-  dynamics behaviour the same spec asks for or a hidden tone control; flat was
-  judged the better miss. Details in `docs/plan.md`.
-- **The panel's typeface is the system sans**, not the suite's display face,
-  while a font-licensing question is settled. The layout is final; the
-  letterforms are not.
-- **No presets folder is created until you save one.**
-
-Full measurements, the curve, and three findings about the specification
-itself: <https://github.com/kevkloud/bmo-saturator#readme>
+Full write-up, including how each constant was fitted:
+<https://github.com/kevkloud/bmo-saturator#readme>
