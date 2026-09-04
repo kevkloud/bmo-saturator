@@ -94,6 +94,7 @@ private:
     std::atomic<float>* phaseParam        = nullptr;
     std::atomic<float>* autoGainParam     = nullptr;
     std::atomic<float>* oversamplingParam = nullptr;
+    std::atomic<float>* toneParam         = nullptr;
 
     bmosat::DspCore dsp;
 

@@ -30,6 +30,7 @@
 */
 
 #include "dsp/DspCore.h"
+#include "dsp/DriveTables.h"
 #include <algorithm>
 #include <cmath>
 #include <complex>
@@ -41,6 +42,7 @@
 #include <vector>
 
 using namespace bmosat;
+namespace tables = bmosat::tables;
 
 namespace
 {
@@ -119,7 +121,7 @@ std::vector<float> referenceVoice (double seconds = 8.0, double rmsDbfs = -18.0)
                                                      : std::exp (-(beat - 0.010) * 7.0));
 
         // Pitch: a slow phrase contour with vibrato on it.
-        const auto f0 = 132.0 * std::pow (2.0, 0.35 * std::sin (2.0 * kPi * 0.31 * t))
+        const auto f0 = 120.0 * std::pow (2.0, 0.35 * std::sin (2.0 * kPi * 0.31 * t))
                               * (1.0 + 0.012 * std::sin (2.0 * kPi * 5.4 * t));
 
         double sum = 0.0;
@@ -133,15 +135,21 @@ std::vector<float> referenceVoice (double seconds = 8.0, double rmsDbfs = -18.0)
 
             phase[h - 1] = std::fmod (phase[h - 1] + 2.0 * kPi * hz / kSampleRate, 2.0 * kPi);
 
-            // A glottal source falls at about 12 dB per octave, but a sung or
-            // projected voice is not a glottal source: the higher harmonics
-            // are what carry through a mix, and a take that has been through a
-            // preamp and a compressor has more of them still. At 1/h^1.4 the
-            // reference's band profile lands where a real vocal take's does,
-            // which is what the fit depends on -- with a steeper source the
-            // 2.5-6 kHz band is nearly empty and every delta measured in it is
-            // an artefact of the test signal rather than of the plugin.
-            auto amplitude = std::pow ((double) h, -1.4);
+            // The exponent here decided the first release, and got it wrong.
+            //
+            // At 1/h^1.4 with quiet breath noise, this signal carried 22 dB
+            // less energy above 6 kHz than the actual reference vocal. The
+            // plugin was then fitted to it, and the same harmonic generation
+            // that measured +8 dB here measured +0.4 dB on the real take --
+            // because a band delta says as much about what the source already
+            // had in that band as about what the process added.
+            //
+            // Now matched to the reference take's own band profile, measured
+            // from the file: -6.6 / -2.4 / -7.9 / -17.9 / -15.8 dB relative to
+            // its total, across the five bands. `measure bands` prints what
+            // this produces; if it drifts from those figures, every number the
+            // harness reports drifts with it.
+            auto amplitude = std::pow ((double) h, -1.15);
 
             double shaped = 0.0;
 
@@ -155,13 +163,12 @@ std::vector<float> referenceVoice (double seconds = 8.0, double rmsDbfs = -18.0)
         }
 
         // Breath and sibilance: high-passed noise, which is what fills the top
-        // two octaves on a voice and what the saturation has to work with up
-        // there. Kept quiet -- an over-airy reference makes every high-band
-        // delta read small, and the plugin would then be fitted to compensate
-        // for the test signal.
+        // two octaves on a voice and is most of what a real take has up there.
+        // The level is fitted to the reference take rather than guessed; see
+        // the note on the harmonic rolloff above for what guessing cost.
         const auto white = noise();
         breath += 0.35 * (white - breath);
-        sum += 0.006 * (white - breath);
+        sum += 0.24 * (white - breath);
 
         out[i] = (float) (envelope * sum);
     }
@@ -287,6 +294,38 @@ bool readWav (const std::string& path, std::vector<float>& out, double& rate)
     }
 
     return false;
+}
+
+/** 24-bit PCM out. Enough to hand a bounce back to whoever sent one. */
+bool writeWav (const std::string& path, const std::vector<float>& samples, double rate)
+{
+    std::ofstream file (path, std::ios::binary);
+
+    if (! file)
+        return false;
+
+    const uint32_t dataBytes = (uint32_t) (samples.size() * 3);
+    const uint32_t byteRate  = (uint32_t) rate * 3;
+
+    const auto u32 = [&file] (uint32_t v) { file.put ((char) (v & 0xff)); file.put ((char) ((v >> 8) & 0xff));
+                                            file.put ((char) ((v >> 16) & 0xff)); file.put ((char) ((v >> 24) & 0xff)); };
+    const auto u16 = [&file] (uint16_t v) { file.put ((char) (v & 0xff)); file.put ((char) ((v >> 8) & 0xff)); };
+
+    file.write ("RIFF", 4); u32 (36 + dataBytes); file.write ("WAVE", 4);
+    file.write ("fmt ", 4); u32 (16); u16 (1); u16 (1); u32 ((uint32_t) rate);
+    u32 (byteRate); u16 (3); u16 (24);
+    file.write ("data", 4); u32 (dataBytes);
+
+    for (auto v : samples)
+    {
+        const auto clamped = std::max (-1.0f, std::min (1.0f, v));
+        const auto value = (int32_t) std::lround ((double) clamped * 8388607.0);
+        file.put ((char) (value & 0xff));
+        file.put ((char) ((value >> 8) & 0xff));
+        file.put ((char) ((value >> 16) & 0xff));
+    }
+
+    return true;
 }
 
 //==============================================================================
@@ -416,9 +455,10 @@ std::vector<double> spectrum (const std::vector<float>& x, size_t size = 16384)
     return power;
 }
 
-double bandEnergy (const std::vector<double>& power, double lowHz, double highHz, size_t size = 16384)
+double bandEnergy (const std::vector<double>& power, double lowHz, double highHz,
+                   double rate = kSampleRate, size_t size = 16384)
 {
-    const auto binHz = kSampleRate / (double) size;
+    const auto binHz = rate / (double) size;
     double sum = 0.0;
 
     for (size_t k = 1; k < power.size(); ++k)
@@ -437,9 +477,14 @@ double bandEnergy (const std::vector<double>& power, double lowHz, double highHz
 //==============================================================================
 
 std::vector<float> render (const std::vector<float>& input, DspCore::Params params,
-                           double rate = kSampleRate)
+                           double rate = kSampleRate,
+                           const DspCore::Character* character = nullptr)
 {
     DspCore core;
+
+    if (character != nullptr)
+        core.setCharacter (*character);
+
     core.prepare (rate, 512, 1, params.oversampling);
     core.setParams (params);
 
@@ -512,7 +557,8 @@ struct Report
     double matchDb = 0.0;
 };
 
-Report analyse (const std::vector<float>& dry, const std::vector<float>& wet)
+Report analyse (const std::vector<float>& dry, const std::vector<float>& wet,
+                double rate = kSampleRate)
 {
     Report r;
 
@@ -538,12 +584,226 @@ Report analyse (const std::vector<float>& dry, const std::vector<float>& wet)
 
     for (int b = 0; b < 5; ++b)
     {
-        const auto d = bandEnergy (dryPower, kFuji[b].lowHz, kFuji[b].highHz);
-        const auto w = bandEnergy (wetPower, kFuji[b].lowHz, kFuji[b].highHz);
+        const auto d = bandEnergy (dryPower, kFuji[b].lowHz, kFuji[b].highHz, rate);
+        const auto w = bandEnergy (wetPower, kFuji[b].lowHz, kFuji[b].highHz, rate);
         r.bandDb[b] = d > 0.0 && w > 0.0 ? 10.0 * std::log10 (w / d) : 0.0;
     }
 
     return r;
+}
+
+//==============================================================================
+/** Right-aligned target column, or nothing. */
+std::string juce_format (double value, bool signedValue = false)
+{
+    char buffer[32];
+    std::snprintf (buffer, sizeof (buffer), signedValue ? "     %+6.2f" : "     %6.3f", value);
+    return buffer;
+}
+
+//==============================================================================
+/** The four metrics, printed the way `verify` prints them, for any pair of
+    signals -- whether this plugin made the second one or not.
+
+    Separated out so a bounce from someone else's session can be held to the
+    same measurement as the harness's own reference, with no argument about
+    whether the two were measured the same way. */
+void printReport (const Report& r, double rate, bool showTargets)
+{
+    std::printf ("waveshaping asymmetry                      measured%s\n",
+                 showTargets ? "     Fuji" : "");
+    std::printf ("  positive-half average gain               %6.3f%s\n",
+                 r.positiveGain, showTargets ? juce_format (kFujiPositiveGain).c_str() : "");
+    std::printf ("  negative-half average gain               %6.3f%s\n",
+                 r.negativeGain, showTargets ? juce_format (kFujiNegativeGain).c_str() : "");
+    std::printf ("  asymmetry                                %6.3f%s\n\n",
+                 r.asymmetry, showTargets ? juce_format (kFujiAsymmetry).c_str() : "");
+
+    std::printf ("band energy, level-matched (%+.2f dB)      measured%s\n",
+                 r.matchDb, showTargets ? "     Fuji" : "");
+
+    for (int b = 0; b < 5; ++b)
+        std::printf ("  %-22s              %+6.2f%s\n", kFuji[b].name, r.bandDb[b],
+                     showTargets ? juce_format (kFuji[b].deltaDb, true).c_str() : "");
+
+    std::printf ("\ncrest factor                               measured%s\n",
+                 showTargets ? "     Fuji" : "");
+    std::printf ("  dry                                      %6.2f\n", r.dryCrest);
+    std::printf ("  processed                                %6.2f\n", r.wetCrest);
+    std::printf ("  change                                   %+6.2f%s\n",
+                 r.wetCrest - r.dryCrest,
+                 showTargets ? juce_format (kFujiCrestChange, true).c_str() : "");
+
+    std::printf ("\n(%.0f Hz)\n", rate);
+}
+
+
+//==============================================================================
+/** Fit the character against a real before/after pair.
+
+    This is the command that should have been run before the first release. The
+    original fit was made against the harness's synthetic voice, which turned
+    out to carry 22 dB less energy above 6 kHz than the actual reference vocal
+    -- so the same harmonic generation measured +8 dB there and +0.4 dB on the
+    real thing. Fitting against the files themselves removes the guess.
+
+    Searches the drive and the two generators' gains, scoring against the
+    target's own measured band deltas and crest factor rather than against the
+    figures written down in the brief, since the files are the ground truth and
+    the brief is a summary of them.
+*/
+int fitToFiles (const std::string& dryPath, const std::string& targetPath)
+{
+    std::vector<float> dry, target;
+    double dryRate = kSampleRate, targetRate = kSampleRate;
+
+    if (! readWav (dryPath, dry, dryRate))       { std::printf ("could not read %s\n", dryPath.c_str()); return 1; }
+    if (! readWav (targetPath, target, targetRate)) { std::printf ("could not read %s\n", targetPath.c_str()); return 1; }
+
+    const auto goal = analyse (dry, target, dryRate);
+
+    std::printf ("target, measured from the files themselves (%.0f Hz, %.1f dBFS RMS source):\n",
+                 dryRate, 20.0 * std::log10 (std::max (rms (dry), 1.0e-9)));
+
+    for (int b = 0; b < 5; ++b)
+        std::printf ("  %-22s %+6.2f dB\n", kFuji[b].name, goal.bandDb[b]);
+
+    std::printf ("  crest factor change    %+6.2f dB\n\n", goal.wetCrest - goal.dryCrest);
+
+    // Ten seconds is enough to search on; the winner is re-measured on the
+    // whole file at the end.
+    const auto excerpt = std::vector<float> (dry.begin(),
+                                             dry.begin() + (long) std::min (dry.size(), (size_t) (dryRate * 10.0)));
+
+    struct Candidate
+    {
+        double curveDrive = 12.8;
+        float  sheenGain = 4.75f, sheenTilt = 1.25f, bodyGain = -3.0f;
+        float  bellGainDb = 12.0f;
+        double bellHz = 7000.0, bellQ = 1.0, highPassHz = 45.0;
+    };
+
+    const auto score = [&] (const Candidate& k, Report* out = nullptr, bool full = false)
+    {
+        DspCore::Character c;
+        c.sheenGain  = k.sheenGain;
+        c.sheenTilt  = k.sheenTilt;
+        c.bodyGain   = k.bodyGain;
+        c.bellGainDb = k.bellGainDb;
+        c.bellHz     = k.bellHz;
+        c.bellQ      = k.bellQ;
+        c.highPassHz = k.highPassHz;
+        const auto curveDrive = k.curveDrive;
+
+        auto params = defaultParams();
+        params.autoGain = false;
+
+        // The search works in curve drive directly; the panel mapping is
+        // solved for afterwards so that Drive 40 lands on the winner.
+        params.driveAmount = 100.0f * (float) ((std::log (curveDrive / tables::kDriveMin))
+                                                 / std::log (tables::kDriveMax / tables::kDriveMin));
+        params.driveAmount = std::clamp (params.driveAmount, 0.0f, 100.0f);
+
+        const auto& source = full ? dry : excerpt;
+        const auto wet = render (source, params, dryRate, &c);
+        const auto r = analyse (source, wet, dryRate);
+
+        if (out != nullptr)
+            *out = r;
+
+        // The two upper bands are the point of the plugin, so they carry more
+        // weight than the three the target leaves alone.
+        const double weight[5] { 1.0, 1.0, 1.0, 2.0, 2.0 };
+        double error = 0.0;
+
+        for (int b = 0; b < 5; ++b)
+            error += weight[b] * std::abs (r.bandDb[b] - goal.bandDb[b]);
+
+        error += 1.5 * std::abs ((r.wetCrest - r.dryCrest) - (goal.wetCrest - goal.dryCrest));
+        return error;
+    };
+
+    Candidate best;
+    auto bestError = score (best);
+
+    std::printf ("searching");
+    std::fflush (stdout);
+
+    // Coordinate descent. The voicing and the saturation interact only weakly
+    // -- the bell decides the band figures, the drive decides the crest factor
+    // and the harmonic content -- so walking one axis at a time converges
+    // quickly and is far cheaper than a grid over eight dimensions.
+    for (int pass = 0; pass < 3; ++pass)
+    {
+        const auto tryAll = [&] (auto&& apply, const std::vector<double>& values)
+        {
+            for (auto v : values)
+            {
+                auto candidate = best;
+                apply (candidate, v);
+                const auto e = score (candidate);
+                if (e < bestError) { bestError = e; best = candidate; }
+            }
+        };
+
+        tryAll ([] (Candidate& c, double v) { c.bellGainDb = (float) v; },
+                { 4, 6, 8, 9, 10, 11, 12, 13, 14, 16 });
+        tryAll ([] (Candidate& c, double v) { c.bellHz = v; },
+                { 4500, 5500, 6500, 7000, 7500, 8500, 10000 });
+        tryAll ([] (Candidate& c, double v) { c.bellQ = v; },
+                { 0.5, 0.7, 0.9, 1.1, 1.4, 1.8 });
+        tryAll ([] (Candidate& c, double v) { c.highPassHz = v; },
+                { 1.0, 20, 30, 40, 50, 65 });
+        tryAll ([] (Candidate& c, double v) { c.curveDrive = v; },
+                { 2, 4, 8, 12, 16, 24, 32, 48, 64 });
+        tryAll ([] (Candidate& c, double v) { c.sheenGain = (float) v; },
+                { 0, 1, 2, 3, 5, 8, 12 });
+        tryAll ([] (Candidate& c, double v) { c.sheenTilt = (float) v; },
+                { 1.0, 1.3, 1.8, 2.5, 3.5 });
+        tryAll ([] (Candidate& c, double v) { c.bodyGain = (float) v; },
+                { -6, -4.5, -3, -1.5, 0, 1.5, 3 });
+
+        std::printf (".");
+        std::fflush (stdout);
+    }
+
+    std::printf (" done\n\n");
+
+    Report r;
+    score (best, &r, true);
+
+    const auto bestDrive = best.curveDrive;
+
+    std::printf ("best fit on the whole file:\n\n");
+    std::printf ("  curve drive at the panel default   %8.2f\n", best.curveDrive);
+    std::printf ("  sheenGain                          %8.2f\n", best.sheenGain);
+    std::printf ("  sheenTilt                          %8.2f\n", best.sheenTilt);
+    std::printf ("  bodyGain                           %8.2f\n", best.bodyGain);
+    std::printf ("  bellGainDb                         %8.2f\n", best.bellGainDb);
+    std::printf ("  bellHz                             %8.0f\n", best.bellHz);
+    std::printf ("  bellQ                              %8.2f\n", best.bellQ);
+    std::printf ("  highPassHz                         %8.0f\n\n", best.highPassHz);
+
+    std::printf ("                              fitted    target\n");
+
+    for (int b = 0; b < 5; ++b)
+        std::printf ("  %-22s  %+6.2f    %+6.2f\n", kFuji[b].name, r.bandDb[b], goal.bandDb[b]);
+
+    std::printf ("  crest factor change     %+6.2f    %+6.2f\n", r.wetCrest - r.dryCrest,
+                 goal.wetCrest - goal.dryCrest);
+    std::printf ("  broadband gain          %+6.2f    %+6.2f\n", -r.matchDb, -goal.matchDb);
+
+    // What the drive mapping has to be for the panel's default to land here.
+    std::printf ("\nFor Drive %.0f %% to produce a curve drive of %.2f, with the range spanning\n"
+                 "the same ratio it does now, DriveTables.h wants:\n"
+                 "  kDriveMin = %.2f    kDriveMax = %.2f\n",
+                 defaultParams().driveAmount, bestDrive,
+                 bestDrive / std::pow (tables::kDriveMax / tables::kDriveMin,
+                                       defaultParams().driveAmount / 100.0),
+                 bestDrive / std::pow (tables::kDriveMax / tables::kDriveMin,
+                                       defaultParams().driveAmount / 100.0)
+                   * (tables::kDriveMax / tables::kDriveMin));
+    return 0;
 }
 
 //==============================================================================
@@ -570,7 +830,7 @@ int verify (const std::string& wavPath)
 
     const auto params = defaultParams();
     const auto wet = render (dry, params, rate);
-    const auto r = analyse (dry, wet);
+    const auto r = analyse (dry, wet, rate);
 
     std::printf ("Drive %.0f %%, %dx oversampling, Auto Gain off\n\n",
                  params.driveAmount, params.oversampling);
@@ -782,6 +1042,85 @@ int main (int argc, char** argv)
     const std::string command = argc > 1 ? argv[1] : "verify";
     const std::string argument = argc > 2 ? argv[2] : "";
 
+    if (command == "fitfile")
+    {
+        if (argc < 4)
+        {
+            std::printf ("usage: measure fitfile dry.wav target.wav\n");
+            return 1;
+        }
+
+        return fitToFiles (argv[2], argv[3]);
+    }
+
+    if (command == "compare")
+    {
+        if (argc < 4)
+        {
+            std::printf ("usage: measure compare dry.wav processed.wav\n");
+            return 1;
+        }
+
+        std::vector<float> dry, wet;
+        double dryRate = kSampleRate, wetRate = kSampleRate;
+
+        if (! readWav (argv[2], dry, dryRate))  { std::printf ("could not read %s\n", argv[2]); return 1; }
+        if (! readWav (argv[3], wet, wetRate))  { std::printf ("could not read %s\n", argv[3]); return 1; }
+
+        if (std::abs (dryRate - wetRate) > 1.0)
+        {
+            std::printf ("sample rates differ: %.0f against %.0f\n", dryRate, wetRate);
+            return 1;
+        }
+
+        std::printf ("dry:       %s (%zu samples, %.1f dBFS RMS, %.1f dBFS peak)\n",
+                     argv[2], dry.size(), 20.0 * std::log10 (std::max (rms (dry), 1.0e-9)),
+                     20.0 * std::log10 (std::max (peak (dry), 1.0e-9)));
+        std::printf ("processed: %s (%zu samples, %.1f dBFS RMS, %.1f dBFS peak)\n\n",
+                     argv[3], wet.size(), 20.0 * std::log10 (std::max (rms (wet), 1.0e-9)),
+                     20.0 * std::log10 (std::max (peak (wet), 1.0e-9)));
+
+        if (dry.size() != wet.size())
+            std::printf ("NOTE: the two files are different lengths, so they may not be aligned.\n"
+                         "      Every metric below assumes sample-for-sample alignment.\n\n");
+
+        printReport (analyse (dry, wet, dryRate), dryRate, true);
+        return 0;
+    }
+
+    if (command == "render")
+    {
+        if (argc < 4)
+        {
+            std::printf ("usage: measure render in.wav out.wav [drive] [autogain 0|1] [oversampling 1|2|4|8]\n");
+            return 1;
+        }
+
+        std::vector<float> dry;
+        auto rate = kSampleRate;
+
+        if (! readWav (argv[2], dry, rate)) { std::printf ("could not read %s\n", argv[2]); return 1; }
+
+        auto params = defaultParams();
+        if (argc > 4) params.driveAmount  = (float) std::atof (argv[4]);
+        if (argc > 5) params.autoGain     = std::atoi (argv[5]) != 0;
+        if (argc > 6) params.oversampling = std::atoi (argv[6]);
+        if (argc > 7) params.inputGainDb  = (float) std::atof (argv[7]);
+        if (argc > 8) params.mixPercent   = (float) std::atof (argv[8]);
+
+        const auto wet = render (dry, params, rate);
+
+        if (! writeWav (argv[3], wet, rate)) { std::printf ("could not write %s\n", argv[3]); return 1; }
+
+        std::printf ("Drive %.0f %%, Input %+.1f dB, Mix %.0f %%, Auto Gain %s, %dx, %.0f Hz\n\n",
+                     params.driveAmount, params.inputGainDb, params.mixPercent,
+                     params.autoGain ? "on" : "off", params.oversampling, rate);
+
+        printReport (analyse (dry, wet, rate), rate, true);
+        std::printf ("\nwrote %s\n", argv[3]);
+        return 0;
+    }
+
     if (command == "harmonics")
     {
         // Even against odd is the measurement that separates the two
@@ -902,7 +1241,8 @@ int main (int argc, char** argv)
     if (command == "curve")  return curve();
     if (command == "alias")  return alias();
 
-    std::printf ("usage: measure [verify [file.wav] | sweep | harmonics | makeup"
-                 " | curve | alias | fit | bands | null]\n");
+    std::printf ("usage: measure [verify [file.wav] | compare dry.wav processed.wav\n"
+                 "               | render in.wav out.wav [drive] [autogain] [oversampling]\n"
+                 "               | sweep | harmonics | makeup | curve | alias | fit | bands | null]\n");
     return 1;
 }

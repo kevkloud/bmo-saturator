@@ -1,8 +1,27 @@
-# BMO Saturator 0.1.0 — test plan and known gaps
+# BMO Saturator 0.2.0 — test plan and known gaps
 
 **For Frosty.** This is what to listen for, in what order, and what to send
 back. The second half is an honest list of what is wrong or unsettled, so you
 are not spending your ears finding things that are already known.
+
+**What changed since 0.1.0, from your Test 1 report:**
+
+- **Your numbers were right and 0.1.0 genuinely missed.** Rendering your dry
+  file through the old build reproduces your result exactly. The cause was not
+  the waveshaper: it was that the plugin had been fitted to a synthetic test
+  signal carrying 22 dB less energy above 6 kHz than your actual vocal, so the
+  same processing measured +8 dB there and +0.4 dB on the real thing.
+- **The reference is mostly an equaliser.** Fitting the best possible linear
+  filter from your dry file to the Fuji file explains 97 % of it — a bell of
+  about +10 dB at 7 kHz. Those +6 and +8 dB band lifts are not harmonic
+  generation and no waveshaper reaches them. There is now a **TONE** control
+  carrying that voicing, on the panel with a name rather than hidden in the
+  curve. All five bands now land within half a decibel of the target.
+- **The scratching was real and worse than reported** — over thirty times full
+  scale, from ADAA state not being rebuilt when the drive changed. Fixed, with
+  a test that sweeps the control at three speeds and checks the audio.
+- **Oversampling is now Off by default**, at zero latency, as you asked.
+- **Your crest factor result does not reproduce here.** See gap 4.5.
 
 **You can paste this whole file into Claude and ask it anything** — "what does
 crest factor mean here", "why does the asymmetry number matter", "explain gap
@@ -17,17 +36,22 @@ full engineering write-up.
 
 You gave a target: the before-and-after measurements of a vocal you liked
 ("Fuji"), and a second example you did not like ("Preesh BG") as a thing to
-avoid. Four numbers were fitted:
+avoid. Measured on your own files this time, rather than on a stand-in:
 
-| | what it means | target | what this build measures |
+| | target | 0.2.0 | 0.1.0 |
 |---|---|---|---|
-| **Asymmetry, 0.22** | how lopsided the distortion is, which is what makes it warm rather than edgy | 0.62 / 0.84 | 0.620 / 0.840 |
-| **Where the new energy lands** | 2.5–18 kHz lifts 6–8 dB, everything below stays put | +6.25 / +8.25 dB | +5.73 / +8.24 dB |
-| **Dynamics** | transients survive and get slightly *more* peaky, not squashed | +1.7 dB | +2.43 dB |
-| **Even vs odd harmonics** | the octave-related ones should lead | — | second harmonic leads third by 6.3 dB |
+| 20–150 Hz | −1.22 dB | −0.59 | −0.13 |
+| 150–600 Hz | −1.19 dB | −1.18 | +0.32 |
+| 600 Hz–2.5 kHz | −0.80 dB | −0.98 | −1.47 |
+| **2.5–6 kHz** | **+6.56 dB** | **+6.15** | −0.99 |
+| **6–18 kHz** | **+8.51 dB** | **+8.13** | +0.35 |
+| crest factor | +1.67 dB | +3.32 | −1.84 |
 
-So on paper it hits the target. **Nobody has heard it against your reference
-file.** That is the entire purpose of this build.
+Every band within half a decibel. Crest factor is the one still out — it opens
+up more than the reference does, because the voicing lifts transient high end.
+
+**Nobody has heard it against your reference file.** That is still the entire
+purpose of this build.
 
 The one sentence that matters: **it should sound warm, not merely bright.** The
 example you disliked measured nearly the same amount of high end and sounded
@@ -43,7 +67,7 @@ Do them in this order. Each one takes a few minutes. **Turn AUTO on for every
 listening test** unless a step says otherwise — it level-matches, and louder
 always sounds better for the first ten seconds.
 
-### Test 1 — Against the reference (the important one)
+### Test 1 — Against the reference (the important one, again)
 
 1. Take the same vocal the Fuji reference came from, dry.
 2. Load BMO Saturator, preset **Reference** (DRIVE 40, AUTO on).
@@ -95,7 +119,19 @@ that behaves differently from a voice is where it is most likely to be wrong —
 particularly anything with a lot of natural high end already, like cymbals or
 acoustic guitar.
 
-### Test 6 — Does it stay out of the way
+### Test 6 — TONE, the new control
+
+TONE is the voicing: the 7.5 kHz bell that makes the band numbers match. It is
+the part of this that is an equaliser rather than a saturator.
+
+1. On a vocal, sweep TONE from 0 to 100 with DRIVE at 40.
+2. At 0, listen to what the saturation alone does.
+
+**Report:** whether the plugin is better with the voicing or without it, and
+whether 100 % is too much. This is the biggest open design question — see gap
+4.6 — and your ear settles it, not mine.
+
+### Test 7 — Does it stay out of the way
 
 1. **SAT** off should be a perfect bypass. Any change in level or tone with it
    off is a bug.
@@ -105,7 +141,7 @@ acoustic guitar.
 4. Leave it on a track and play for ten minutes. Any crackle that appears over
    time is a bug.
 
-### Test 7 — Does it behave as software
+### Test 8 — Does it behave as software
 
 Load it, save the project, close everything, reopen. Settings should come back
 exactly. Try in more than one host if you can. Any crash, hang, or "plugin not
@@ -122,8 +158,9 @@ Most useful, in order:
    provide.
 2. Where the character crosses from warm to overdriven (Test 3).
 3. Any source it does not suit.
-4. Bugs from Tests 6 and 7.
-5. Anything about the panel — layout, sizes, whether DRIVE reads as the main
+4. Whether the plugin should carry an EQ at all (Test 6).
+5. Bugs from Tests 7 and 8.
+6. Anything about the panel — layout, sizes, whether DRIVE reads as the main
    control at a glance.
 
 Bounced examples are gold if they are easy: dry and processed, level-matched,
@@ -137,17 +174,13 @@ pointed at a bounce and will report all four numbers for that specific file.
 Things already found. **You do not need to look for these** — but if any of
 them bothers you in practice, say so, because that changes the priority.
 
-### 4.1 Two of the five frequency bands miss the target
+### 4.1 Crest factor opens up more than the reference
 
-The Fuji reference had 150–600 Hz and 600 Hz–2.5 kHz sitting about 1 dB *down*.
-This build leaves them flat instead.
-
-Fixing that means either compressing harder — which would cost the "transients
-survive" behaviour the same reference asks for — or building in a fixed EQ dip,
-which is a tone control the plugin deliberately does not have. Flat was judged
-the better miss. **If it sounds a bit thick or forward in the low mids on real
-material, this is why, and it becomes a visible control rather than a hidden
-one.**
+The reference's transients open up by 1.67 dB; this build gives 3.32 dB. Both
+go the right way — nothing is being squashed — but this is livelier than Fuji.
+The cause is the voicing lifting transient high end. Pulling TONE back reduces
+it, at the cost of the band match. If it sounds spiky or ticky on consonants,
+that is this, and it is worth telling me.
 
 ### 4.2 The asymmetry measurement may have misjudged Preesh BG
 
@@ -193,14 +226,46 @@ something with more natural top end. Nothing is wrong; it just means comparing
 this build's numbers against a figure from a different take is really comparing
 the takes.
 
-### 4.5 Not code-signed
+### 4.5 Your crest factor measurement does not reproduce here
+
+You measured 18.68 dB against a dry 20.52 — peaks squashed. Every render here
+raises the crest factor at every Drive and Input setting, and your bounce does
+not null against either the dry file or a local render of it at any setting,
+which means it contains something this plugin does not produce.
+
+Two candidates: something else was on the chain or the master when you bounced,
+or the file predates a setting change. Worth checking before treating it as a
+plugin bug — if it turns out the bounce was clean, there is a real problem here
+that I have not found.
+
+### 4.6 The plugin is now two things, and one of them is an EQ
+
+TONE is a 7.5 kHz bell of up to +8 dB with a high-pass under it. That is an
+equaliser, and it is doing most of the work that the band targets measure. It
+is on the panel and defeatable precisely so that is visible rather than hidden.
+
+Worth deciding, and it is your call: is a saturator that carries a fixed EQ
+voicing what you want, or would you rather the plugin only ever generate
+harmonics and leave the tone shaping to BMO EQ next to it? The second is
+purer and will never match the Fuji numbers. The first matches, and is what
+most "character" plugins actually are under the hood.
+
+### 4.7 The asymmetry figure in the brief is not in the files
+
+Measured on your dry/processed pair the way the brief describes, Fuji's
+positive and negative average gains are 0.965 and 1.015 — an asymmetry of 0.05,
+not 0.22. Every other figure in the brief reproduces to a tenth of a decibel,
+so this is not a disagreement about method. Wherever 0.62 / 0.84 came from, it
+was not this pair.
+
+### 4.8 Not code-signed
 
 macOS and Windows will both warn on first open. The read-me has the two clicks.
 Removing the macOS warning properly costs $99/year for an Apple developer
 account — worth deciding before this goes to anyone who will not follow
 instructions.
 
-### 4.6 The typeface is not the suite's
+### 4.9 The typeface is not the suite's
 
 The panel uses the system sans instead of the suite's display faces, because
 embedding those in a public open-source repo is a licensing question that is
@@ -208,7 +273,7 @@ not settled. **Layout, sizes and spacing are final; the letterforms are not.**
 It will look slightly different from FrostyEQ, and that gets fixed when the
 font question is answered for the whole suite.
 
-### 4.7 The default preset is not level-matched
+### 4.10 The default preset is not level-matched
 
 **Init** — what you get when the plugin first loads — comes out about 1.6 dB
 quieter than the input, because AUTO is off by default. Every other preset is
@@ -216,7 +281,7 @@ matched. AUTO defaults to off on purpose (a level match is a decision about how
 you are auditioning, not about how it should sound), but if that trips you up
 in practice it can be changed.
 
-### 4.8 Nothing has been validated by ear. At all.
+### 4.11 Nothing has been validated by ear. At all.
 
 Including the presets, which were checked against measurements and never
 listened to. Treat every one of them as somewhere to start, not somewhere to

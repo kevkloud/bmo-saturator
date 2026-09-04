@@ -31,38 +31,97 @@ top band, or if the crest factor drops.
 
 ## 2. What was fitted, and to what
 
-Two constants carry the character. Both were fitted numerically against the
-reference figures rather than chosen, and `measure fit` re-derives them:
+Everything that decides the sound is in `DspCore::Character` and
+`DriveTables.h`, and every value in them was fitted numerically rather than
+chosen. `measure fitfile dry.wav target.wav` re-derives the lot against a real
+before/after pair; `measure fit` does the curve alone.
 
-- `AsymmetricShaper::kBias = 0.263` — the offset, in the driven domain.
-- `DRIVE 40 %` maps to a curve drive of 3.62, via `kDriveMin` / `kDriveMax` in
-  `dsp/DriveTables.h`.
-
-At that pair, over the harness's reference voice at −18 dBFS RMS, the curve's
-average gains are 0.620 and 0.840, an asymmetry of 0.220. The targets are 0.62,
-0.84, 0.22.
-
-The remaining constants shape where the harmonics land, and were fitted to the
-band deltas at the same drive:
-
-| constant | value | fitted to |
+| constant | 0.2.0 value | fitted to |
 |---|---|---|
-| `kBodySourceHz` / `kBodyGain` | 600 Hz, −3.0 | 600 Hz – 2.5 kHz near flat |
-| `kResidualSplitHz` | 2400 Hz | where the target's flat bands end |
-| `kSheenSourceHz` / `kSheenGain` | 6000 Hz, 4.75 | +6.25 dB at 2.5–6 kHz |
-| `kSheenHz` / `kSheenTilt` | 6000 Hz, 1.25 | +8.25 dB at 6–18 kHz |
+| `AsymmetricShaper::kBias` | 0.263 | the curve's average gains, 0.62 / 0.84 |
+| curve drive at Drive 40 % | 4.00 | band deltas on the reference pair |
+| `bellHz` / `bellQ` / `bellGainDb` | 7500 Hz, 0.90, +8 dB | the +6.5 and +8.5 dB band lifts |
+| `highPassHz` | 50 Hz | the reference's bottom-end roll-off |
+| `bodySourceHz` / `bodyGain` | 600 Hz, +3.0 | 600 Hz – 2.5 kHz near flat |
+| `residualSplitHz` | 2400 Hz | where the target's flat bands end |
+| `sheenSourceHz` / `sheenGain` | 6000 Hz, 4.75 | 2.5–6 kHz |
+| `sheenHz` / `sheenTilt` | 6000 Hz, 1.30 | 6–18 kHz above 2.5–6 kHz |
 | `tables::kMakeupDb` | measured curve | `measure makeup` |
 
-`kBodyGain` is negative, and that is not a typo. The generator's residual in
-600 Hz – 2.5 kHz is in antiphase with the programme's own harmonics there, so
-added in the obvious polarity it *cancels* them and the band measured 3 dB down
-rather than flat. Inverted, it reinforces. Polarity matters whenever a
-harmonic generator is fed a band the source already occupies.
+`bodyGain`'s sign is load-bearing and had to be re-fitted when the voicing
+arrived: it was −3.0 when the plugin was all waveshaper and is +3.0 now. The
+body generator's harmonics land where the programme already has harmonics of
+its own, so they either reinforce or cancel depending on which way round they
+are added. Whenever a generator is fed a band the source already occupies, that
+sign is a measurement, not a decision.
+
+## 2a. What the reference files showed (0.2.0)
+
+Frosty ran Test 1 and sent the three files: the dry vocal, the Fuji processed
+version, and a bounce through BMO 0.1.0. Measuring them settled several things
+at once.
+
+**The harness agrees with his measurements.** Running the dry/target pair
+through `measure compare` reproduces the brief's band figures to within a
+tenth of a decibel (−1.22 / −1.19 / −0.80 / +6.56 / +8.51, crest +1.67). So
+the measurement method is not in dispute.
+
+**0.1.0 genuinely missed, and his numbers are right.** Rendering his dry file
+through the shipped build reproduces his result: no high-band lift at any Drive
+or Input setting. Not a knob problem.
+
+**The cause was the test signal, not the curve.** The plugin had been fitted to
+the harness's synthetic voice, which carries 22 dB less energy above 6 kHz than
+the real take. A band delta is as much a statement about what the source
+already had in that band as about what the process added, so the same harmonic
+generation measured +8 dB on the synthetic and +0.4 dB on the real thing. Gap
+4.4 of the test plan predicted exactly this failure and was then walked into.
+
+**The reference is mostly an equaliser.** Fitting the best linear time-invariant
+filter from dry to processed explains 97 % of Fuji: a bell of about +10 dB at
+7 kHz, 2 dB of broadband trim, a high-pass at the bottom. The band lifts in the
+brief are that bell. No waveshaper produces them, which is why no amount of
+adjustment to the curve reached them.
+
+**His crest factor result does not reproduce.** He measured 18.68 dB against a
+dry 20.52. Every render here raises the crest factor at every setting; his
+bounce lowers it, and it does not null against either the dry file or a local
+render at any setting. Something else was in that chain — worth asking before
+treating it as a plugin bug.
+
+**The zipper noise was real, and worse than reported.** Changing Drive while
+audio flowed produced single samples over thirty times full scale, five
+thousand times the largest step the programme was making. Cause: ADAA carries
+the antiderivative of the previous sample across calls, and changing the drive
+without rebuilding that state subtracts two different functions and divides by
+a possibly tiny dx. Smoothing was already present and could not have helped --
+the smoother is what delivered the changing value. Fixed in
+`AsymmetricShaper::setDrive`, with a test that sweeps the control at three
+speeds and checks the output for steps rather than checking that smoothing code
+exists.
+
+### What changed in 0.2.0
+
+| | 0.1.0 | 0.2.0 |
+|---|---|---|
+| Fitted against | synthetic voice | the reference files themselves |
+| Voicing | none | TONE: 7.5 kHz bell, +8 dB, high-pass at 50 Hz |
+| Curve drive at Drive 40 | 3.62 | 4.00 |
+| sheenGain / sheenTilt | 4.75 / 1.25 | 4.75 / 1.30 |
+| bodyGain | −3.0 | +3.0 |
+| Oversampling default | 2x | Off (zero latency) |
+| Drive changes | 32× full-scale spike | no step larger than the programme's |
 
 ## 3. Four things the specification got wrong or under-determined
 
 Worth Frosty's time; the first two change how the two references should be
 compared.
+
+**3.0 The asymmetry figures are not reproducible from the files.** Measured on
+the actual pair, the way the brief describes, Fuji's average gains are 0.965
+and 1.015 — an asymmetry of 0.05 against the stated 0.22. Every other figure in
+the brief reproduces exactly, so this is not a measurement-method disagreement;
+it is one number that does not come from these files.
 
 **3.1 The asymmetry metric is mostly a DC-offset metric.** An asymmetric curve
 moves the mean of its output. Split by polarity and compare average gains and

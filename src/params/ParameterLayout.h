@@ -31,6 +31,10 @@ inline constexpr auto kPhase        = "phase";
 inline constexpr auto kAutoGain     = "auto_gain";
 inline constexpr auto kOversampling = "oversampling";
 
+/** Appended in 0.2.0. New IDs go on the end and never in the middle: the list's
+    order is part of what a saved session references. */
+inline constexpr auto kTone = "tone";
+
 /** Bump only when adding parameters; existing entries keep their original hint. */
 inline constexpr int kVersionHint  = 1;
 inline constexpr int kStateVersion = 1;
@@ -45,7 +49,7 @@ inline constexpr int kStateVersion = 1;
 inline juce::StringArray allIds()
 {
     return { kInputGain, kDrive, kMix, kOutputLevel,
-             kSatIn, kPhase, kAutoGain, kOversampling };
+             kSatIn, kPhase, kAutoGain, kOversampling, kTone };
 }
 
 //==============================================================================

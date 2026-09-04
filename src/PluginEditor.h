@@ -9,17 +9,22 @@
 /** A vertical strip, in the suite's shape: one narrow column, input at the top,
     the character control in the middle, output at the bottom.
 
-    Five controls and three switches, which is the whole plugin. There is no
+    Six controls and three switches, which is the whole plugin. There is no
     curve display, no analyser, and no numeric readout on anything -- a control
     is marked with a plus and, where it cuts as well, a minus. The numbers make
     people mix with their eyes, hunting a tidy figure and flinching from a
     large move.
 
-    Nothing on the panel adjusts the asymmetry or the frequency weighting,
-    because those are the plugin rather than settings of it: Drive scales the
-    intensity of one fitted curve and leaves its character alone. A control
-    that could flatten the asymmetry would let this sound like the thing it was
-    specified not to sound like.
+    TONE is on the panel rather than baked in, and that is a deliberate
+    reversal. Measuring the reference properly showed that most of what it does
+    to the spectrum is an equaliser -- a bell around 7 kHz -- rather than
+    harmonic generation. A plugin that applies 8 dB of fixed EQ while calling
+    itself a saturator is lying to whoever loads it, so the EQ is a control
+    with a name, and turning it down leaves the saturation on its own.
+
+    Nothing on the panel adjusts the asymmetry or the harmonic weighting,
+    though: those are the plugin rather than settings of it. Drive scales the
+    intensity of one fitted curve and leaves its character alone.
 
     The panel is drawn once at a fixed size and scaled as a whole. Laying it
     out again at each new size keeps the controls the same size while the gaps
@@ -55,7 +60,7 @@ private:
     private:
         bmosat::gui::PresetBar presetBar;
 
-        bmosat::gui::PlainKnob inputGain, drive, mix, outputLevel;
+        bmosat::gui::PlainKnob inputGain, drive, tone, mix, outputLevel;
         bmosat::gui::SwitchButton satIn, phase, autoGain;
         bmosat::gui::OutputMeter meter;
 

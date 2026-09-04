@@ -20,8 +20,8 @@ namespace bmosat::tables
     Geometric between them, because what the ear follows is the ratio between
     where the signal sits and where the knee is, not the difference.
 */
-inline constexpr float kDriveMin = 0.6f;
-inline constexpr float kDriveMax = 53.6f;
+inline constexpr float kDriveMin = 0.66f;
+inline constexpr float kDriveMax = 59.25f;
 
 //==============================================================================
 /** Static output compensation, in decibels, at eleven points across the DRIVE
@@ -42,7 +42,7 @@ inline constexpr float kDriveMax = 53.6f;
 */
 inline constexpr std::array<float, 11> kMakeupDb
 {
-    +0.55f, +0.70f, +0.92f, +1.14f, +1.21f, +1.04f, +0.74f, +0.42f, +0.14f, -0.06f, -0.20f
+    +0.47f, +0.72f, +1.23f, +1.75f, +1.62f, +0.72f, -0.31f, -1.15f, -1.75f, -2.18f, -2.47f
 };
 
 inline float makeupDb (float amountPercent) noexcept

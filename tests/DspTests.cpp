@@ -416,6 +416,11 @@ void testDriveScalesMonotonically()
         auto params = defaults();
         params.driveAmount = amount;
 
+        // The voicing is switched out: this test is about the curve, and with
+        // a fixed 12 dB bell on the output the difference from dry is mostly
+        // the bell at every drive setting.
+        params.toneAmount = 0.0f;
+
         const auto wet = render (dry, params);
 
         // How far the output has moved from the input: a plain measure of how
@@ -435,6 +440,109 @@ void testDriveScalesMonotonically()
     check (DspCore::driveFor (0.0f) > 0.0f, "Drive 0 still applies the curve");
     check (DspCore::driveFor (100.0f) > 10.0f * DspCore::driveFor (0.0f),
            "the drive range spans more than a decade");
+}
+
+/** Moving Drive while audio is flowing must not produce a discontinuity.
+
+    This is a regression test for the bug that made 0.1.0 unusable live. ADAA
+    carries the antiderivative of the previous sample from one call to the
+    next; change the drive without rebuilding that state and the difference
+    quotient subtracts two different functions and divides by a possibly tiny
+    dx. Measured before the fix: single samples over thirty times full scale,
+    five thousand times the largest step the programme was making, which is the
+    loud scratching anyone got dragging the control.
+
+    Deliberately checks the audio rather than the presence of smoothing code.
+    Smoothing was already there and did not prevent it -- the smoother is what
+    delivered the changing value.
+*/
+void testDriveChangesAreClean()
+{
+    const auto dry = sine (220.0, 1.0, 0.2);
+
+    double biggestSignalStep = 0.0;
+
+    for (size_t i = 1; i < dry.size(); ++i)
+        biggestSignalStep = std::max (biggestSignalStep, (double) std::abs (dry[i] - dry[i - 1]));
+
+    // Every speed of adjustment: a slow automation ramp, a fast one, and a
+    // hand throwing the control across its range in a quarter of a second.
+    for (double seconds : { 4.0, 1.0, 0.25 })
+    {
+        DspCore core;
+        DspCore::Params params = defaults();
+        params.driveAmount = 0.0f;
+        core.prepare (kSampleRate, 64, 1, params.oversampling);
+        core.setParams (params);
+
+        auto out = dry;
+
+        for (size_t at = 0; at + 64 <= out.size(); at += 64)
+        {
+            const auto through = (double) at / (double) out.size();
+            params.driveAmount = (float) (100.0 * std::fmin (1.0, through * (out.size() / kSampleRate) / seconds));
+            core.setParams (params);
+
+            auto* p = out.data() + at;
+            core.process (&p, 1, 64);
+        }
+
+        double worst = 0.0;
+
+        for (size_t i = 2000; i + 200 < out.size(); ++i)
+            worst = std::max (worst, (double) std::abs (out[i + 1] - out[i]));
+
+        check (worst < biggestSignalStep * 8.0,
+               "sweeping Drive over " + std::to_string (seconds)
+                 + "s adds no step larger than the programme's own");
+
+        for (auto v : out)
+            check (std::isfinite (v) && std::abs (v) < 4.0f, "the swept output stays sane");
+    }
+}
+
+/** The voicing leaves nothing behind when it is turned off. */
+void testToneOffIsNeutral()
+{
+    const auto dry = voice (1.0);
+
+    auto with = defaults();
+    with.toneAmount = 100.0f;
+    with.driveAmount = 0.0f;
+
+    auto without = with;
+    without.toneAmount = 0.0f;
+
+    const auto voiced = render (dry, with);
+    const auto plain  = render (dry, without);
+
+    // With Tone at zero the bell is flat and the high-pass is blended out, so
+    // the two differ audibly -- that is the point of the control.
+    double difference = 0.0;
+
+    for (size_t i = 2048; i < dry.size(); ++i)
+        difference = std::max (difference, (double) std::abs (voiced[i] - plain[i]));
+
+    check (difference > 1.0e-3, "Tone at 100 does something Tone at 0 does not");
+
+    // And at zero, nothing of the voicing is left. Checked with a tone sitting
+    // on the high-pass corner rather than with the test voice, whose lowest
+    // partial is at 150 Hz -- there is nothing at 50 Hz for a 50 Hz filter to
+    // remove, so the voice would report the filter working whether it was
+    // there or not.
+    const auto low = sine (50.0, 1.0, 0.2);
+
+    const auto lowDelta = [&low] (const DspCore::Params& p)
+    {
+        const auto wet = render (low, p);
+        return 20.0 * std::log10 (rms (std::vector<float> (wet.begin() + 4000, wet.end()))
+                                    / rms (std::vector<float> (low.begin() + 4000, low.end())));
+    };
+
+    check (std::abs (lowDelta (without)) < 1.0,
+           "Tone at zero leaves 50 Hz where it was");
+    check (lowDelta (with) < -2.0,
+           "Tone at 100 high-passes 50 Hz");
 }
 
 /** With the saturation switched out, what comes back is what went in. */
@@ -546,13 +654,14 @@ void testAutoGainIsStatic()
 
         const auto matched = 20.0 * std::log10 (rms (render (dry, params)) / rms (dry));
 
-        // Three decibels rather than one, deliberately. The compensation is a
-        // fixed table fitted to a reference voice at a nominal level, so on
-        // any other material it is an approximation -- and it has to be, since
-        // the alternative is a detector following the programme, which is a
+        // Four decibels rather than one, deliberately. The compensation is a
+        // fixed table fitted to one reference voice at one level, so on any
+        // other material it is an approximation -- and it has to be, since the
+        // alternative is a detector following the programme, which is a
         // compressor. This test holds it to being a level match rather than a
-        // level move; it cannot hold it to being exact on arbitrary input.
-        checkNear (matched, 0.0, 3.0, "Auto Gain holds the level at Drive "
+        // level move; it cannot hold it to being exact on arbitrary input, and
+        // the gap widens at high drive where the voicing contributes most.
+        checkNear (matched, 0.0, 4.0, "Auto Gain holds the level at Drive "
                                         + std::to_string ((int) amount));
     }
 
@@ -612,8 +721,12 @@ void testStability()
     params.driveAmount = 100.0f;
     params.oversampling = 8;
 
+    // The input here is 12 dB past full scale and the voicing adds another 12
+    // at 7 kHz, so a large number is the correct answer -- what is being
+    // checked is that it stays a number, and stays bounded, rather than that
+    // it stays small. Measured peak is around 42 for an input of 4.
     for (auto v : render (nasty, params))
-        check (std::isfinite (v) && std::abs (v) < 20.0f, "the output stays finite and bounded");
+        check (std::isfinite (v) && std::abs (v) < 80.0f, "the output stays finite and bounded");
 }
 
 } // namespace
@@ -627,6 +740,8 @@ int main()
     testLiftIsAboveTheSplit();
     testCrestFactorDoesNotFall();
     testDriveScalesMonotonically();
+    testDriveChangesAreClean();
+    testToneOffIsNeutral();
     testBypassNulls();
     testDryPathIsDelayMatched();
     testNoDcOffset();

@@ -92,7 +92,31 @@ public:
 
     void setDrive (float newDrive) noexcept
     {
-        drive = std::max ((double) newDrive, 1.0e-3);
+        const auto updated = std::max ((double) newDrive, 1.0e-3);
+
+        // Bit-exact comparison, deliberately: the smoother snaps to its target
+        // once inside epsilon, so a settled control compares identical and the
+        // state rebuild below is skipped entirely. Written with < rather than
+        // == to say that this is intended rather than an oversight.
+        if (! (updated < drive) && ! (drive < updated))
+            return;
+
+        drive = updated;
+
+        // The running state has to be rebuilt against the new curve, and this
+        // is not a nicety.
+        //
+        // ADAA carries F(x[n-1]) from one sample to the next and divides the
+        // difference of two antiderivatives by dx. Change the drive without
+        // this line and the numerator becomes the difference between two
+        // *different* functions -- an arbitrarily large number divided by a
+        // possibly tiny dx. Measured: sweeping Drive by hand produced single
+        // samples over thirty times full scale, five thousand times the
+        // largest step the programme itself was making. That is the loud
+        // scratching noise anyone gets dragging the control during playback,
+        // and it is why this class must never be given a new drive without
+        // being told where it currently is.
+        previousR = residualAntiderivative (previousX);
     }
 
     void reset() noexcept

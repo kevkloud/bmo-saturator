@@ -10,12 +10,12 @@ namespace
     constexpr int kPresetRow = 24;
     constexpr int kPad       = 10;
 
-    constexpr int kRuleRow   = 22;
-    constexpr int kGainRow   = 106;   // knob plus the name under it
-    constexpr int kMixRow    = 118;
-    constexpr int kDriveRow  = 192;   // the one control that gets room
-    constexpr int kSwitchRow = 44;
-    constexpr int kOutputRow = 130;
+    constexpr int kRuleRow   = 20;
+    constexpr int kGainRow   = 96;    // knob plus the name under it
+    constexpr int kPairRow   = 108;   // Tone and Mix, side by side
+    constexpr int kDriveRow  = 176;   // the one control that gets room
+    constexpr int kSwitchRow = 40;
+    constexpr int kOutputRow = 120;
 
     // One size for all three switches. Three different widths makes them read
     // as three unrelated things rather than a row of switches.
@@ -30,6 +30,7 @@ BmoSaturatorAudioProcessorEditor::Panel::Panel (BmoSaturatorAudioProcessor& p)
     : presetBar   (p.getPresets()),
       inputGain   (p.getApvts(), P::kInputGain,   "INPUT"),
       drive       (p.getApvts(), P::kDrive,       "DRIVE", Knob::Style::drive, 0.66f),
+      tone        (p.getApvts(), P::kTone,        "TONE",  Knob::Style::drive, 0.46f),
       mix         (p.getApvts(), P::kMix,         "MIX",   Knob::Style::drive, 0.46f),
       outputLevel (p.getApvts(), P::kOutputLevel, "OUTPUT"),
       satIn    (p.getApvts(), P::kSatIn,    "SAT"),
@@ -39,7 +40,7 @@ BmoSaturatorAudioProcessorEditor::Panel::Panel (BmoSaturatorAudioProcessor& p)
               [&p] { return juce::jmax (p.getOutputRms  (0), p.getOutputRms  (1)); })
 {
     for (auto* c : std::initializer_list<juce::Component*> {
-             &presetBar, &inputGain, &drive, &mix,
+             &presetBar, &inputGain, &drive, &tone, &mix,
              &satIn, &phase, &autoGain, &outputLevel, &meter })
         addAndMakeVisible (c);
 }
@@ -111,8 +112,16 @@ void BmoSaturatorAudioProcessorEditor::Panel::resized()
     rule ("SATURATION", true);
     drive.setBounds (area.removeFromTop (kDriveRow));
 
-    rule ("BLEND", true);
-    mix.setBounds (area.removeFromTop (kMixRow));
+    // Tone and Mix share a row: neither is the reason you reached for this,
+    // and side by side they read as the two things you adjust after the fact.
+    rule ("TONE   /   BLEND", true);
+
+    {
+        auto pair = area.removeFromTop (kPairRow);
+        const auto half = pair.getWidth() / 2;
+        tone.setBounds (pair.removeFromLeft (half));
+        mix.setBounds (pair);
+    }
 
     rule ({}, true);
 

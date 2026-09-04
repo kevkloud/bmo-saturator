@@ -69,6 +69,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout create()
     // character does not change with the amount. See dsp/Shaper.h.
     layout.add (makeFloat (kDrive, "Drive", 0.0f, 100.0f, 0.1f, 40.0f, percentAttr()));
 
+    // Appended after Mix rather than beside Drive, because parameter order is
+    // permanent once a session references it and this one arrived later. The
+    // panel is free to put it wherever it belongs.
     layout.add (makeFloat (kMix, "Mix", 0.0f, 100.0f, 0.1f, 100.0f, percentAttr()));
     layout.add (makeFloat (kOutputLevel, "Output", -24.0f, 24.0f, 0.01f, 0.0f, dbAttr()));
 
@@ -80,8 +83,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout create()
     // the person turning it on should be the one who decided that.
     layout.add (makeBool (kAutoGain, "Auto Gain", false));
 
+    // Off by default. The curve is anti-aliased by ADAA rather than by rate,
+    // so the folded images at 1x sit around -49 dB without it, and the suite's
+    // rule is that every module reports zero latency in its default state.
+    // Oversampling is there for anyone who wants to spend latency on the last
+    // 30 dB.
     layout.add (makeChoice (kOversampling, "Oversampling",
-        { "Off", "2x", "4x", "HQ (8x)" }, 1));
+        { "Off", "2x", "4x", "HQ (8x)" }, 0));
+
+    // Appended last: the voicing arrived after the first release, and the
+    // parameter list is append-only.
+    layout.add (makeFloat (kTone, "Tone", 0.0f, 100.0f, 0.1f, 100.0f, percentAttr()));
 
     return layout;
 }

@@ -24,18 +24,23 @@ float DspCore::makeupGainDb (float amountPercent) noexcept
 }
 
 //==============================================================================
-void DspCore::Channel::prepare (double rate) noexcept
+void DspCore::Channel::prepare (double rate, const Character& c) noexcept
 {
-    for (auto& pole : bodyInput)
-        pole.setCutoff (kBodySourceHz, rate);
+    character = &c;
 
-    bodySplit.setCutoff (kBodySourceHz, rate);
+    for (auto& pole : bodyInput)
+        pole.setCutoff (c.bodySourceHz, rate);
+
+    bodySplit.setCutoff (c.bodySourceHz, rate);
 
     for (auto& pole : sheenInput)
-        pole.setCutoff (kSheenSourceHz, rate);
+        pole.setCutoff (c.sheenSourceHz, rate);
 
-    sheenSplit.setCutoff (kResidualSplitHz, rate);
-    sheenTilt.set (kSheenHz, kSheenTilt, rate);
+    sheenSplit.setCutoff (c.residualSplitHz, rate);
+    sheenTilt.set (c.sheenHz, c.sheenTilt, rate);
+
+    highPass.set (c.highPassHz, rate);
+    setTone (100.0f, rate);
 
     dc.prepare (rate);
     reset();
@@ -46,6 +51,8 @@ void DspCore::Channel::reset() noexcept
     shaper.reset();
     bodyShaper.reset();
     sheenShaper.reset();
+    bell.reset();
+    highPass.reset();
 
     for (auto& pole : bodyInput)
         pole.reset();
@@ -58,6 +65,21 @@ void DspCore::Channel::reset() noexcept
     sheenTilt.reset();
     dc.reset();
     oversampler.reset();
+}
+
+void DspCore::Channel::setTone (float amountPercent, double rate) noexcept
+{
+    // The amount scales the fitted shape in decibels, so half of TONE is half
+    // the voicing rather than half the gain -- the shape stays the shape.
+    const auto t = std::clamp (amountPercent, 0.0f, 100.0f) * 0.01f;
+    const auto gain = std::pow (10.0f, character->bellGainDb * t * 0.05f);
+
+    bell.set (character->bellHz, character->bellQ, gain, rate);
+
+    // The high-pass is blended rather than switched, so that TONE at zero is
+    // the signal untouched rather than the signal with a filter still on it.
+    // Anything the voicing does has to leave when the voicing leaves.
+    toneAmount = t;
 }
 
 void DspCore::Channel::setDrive (float drive) noexcept
@@ -76,10 +98,14 @@ float DspCore::Channel::process (float x) noexcept
 
     // One generator per band that needs filling. Each is fed the signal below
     // its corner, and only what it makes above that corner is kept.
-    y += kBodyGain  * generate (bodyShaper,  bodyInput,  bodySplit,  x);
-    y += kSheenGain * sheenTilt.process (generate (sheenShaper, sheenInput, sheenSplit, x));
+    y += character->bodyGain  * generate (bodyShaper,  bodyInput,  bodySplit,  x);
+    y += character->sheenGain * sheenTilt.process (generate (sheenShaper, sheenInput, sheenSplit, x));
 
-    return dc.process (y);
+    // The voicing goes after the saturation: the reference's bell sits on the
+    // finished sound, and putting it before would drive the curve with a shape
+    // the reference never fed it.
+    const auto filtered = y + toneAmount * (highPass.process (y) - y);
+    return dc.process (bell.process (filtered));
 }
 
 float DspCore::Channel::generate (AsymmetricShaper& generator, OnePole (&input)[2],
@@ -110,7 +136,7 @@ void DspCore::prepare (double newSampleRate, int maxBlockSize, int numChannels,
 
     const auto controlRate = sampleRate / (double) kSubBlock;
 
-    for (auto* s : { &inputGainSm, &outputLevelSm, &mixSm, &makeupSm })
+    for (auto* s : { &inputGainSm, &outputLevelSm, &mixSm, &makeupSm, &toneSm })
         s->prepare (controlRate, 20.0);
 
     // Drive is smoothed more slowly than a gain. It moves the shape of the
@@ -139,7 +165,7 @@ void DspCore::applyOversampling (int factor)
     // None of this allocates; it only recomputes coefficients, so it is safe
     // to call from the audio thread when the factor changes.
     for (auto& c : channels)
-        c.prepare (effectiveRate);
+        c.prepare (effectiveRate, character);
 }
 
 void DspCore::reset() noexcept
@@ -164,9 +190,12 @@ void DspCore::setParams (const Params& p) noexcept
     mixSm        .setTarget (std::clamp (p.mixPercent, 0.0f, 100.0f) * 0.01f);
     driveSm      .setTarget (drive);
     makeupSm     .setTarget (makeup);
+    toneSm       .setTarget (std::clamp (p.toneAmount, 0.0f, 100.0f));
 
     if (primed)
         return;
+
+    toneSm.snap (std::clamp (p.toneAmount, 0.0f, 100.0f));
 
     inputGainSm  .snap (dbToGain (p.inputGainDb));
     outputLevelSm.snap (dbToGain (p.outputLevelDb));
@@ -199,9 +228,13 @@ void DspCore::process (float* const* channelData, int numChannels, int numSample
         const auto wet      = mixSm.tick();
         const auto dryLevel = 1.0f - wet;
         const auto drive    = driveSm.tick();
+        const auto tone     = toneSm.tick();
 
         for (int ch = 0; ch < activeChannels; ++ch)
+        {
             channels[(size_t) ch].setDrive (drive);
+            channels[(size_t) ch].setTone (tone, effectiveRate);
+        }
 
         // Samples outermost so the shared dry-delay cursor advances once per
         // frame rather than once per channel.

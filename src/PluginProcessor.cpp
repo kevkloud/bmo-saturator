@@ -21,6 +21,7 @@ BmoSaturatorAudioProcessor::BmoSaturatorAudioProcessor()
     phaseParam        = bind (P::kPhase);
     autoGainParam     = bind (P::kAutoGain);
     oversamplingParam = bind (P::kOversampling);
+    toneParam         = bind (P::kTone);
 
     jassert (driveParam != nullptr && mixParam != nullptr);
 
@@ -108,6 +109,7 @@ void BmoSaturatorAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
     DspCore::Params p;
     p.inputGainDb   = load (inputGainParam);
     p.driveAmount   = load (driveParam);
+    p.toneAmount    = load (toneParam);
     p.mixPercent    = load (mixParam);
     p.outputLevelDb = load (outputLevelParam);
     p.saturationIn  = load (satInParam) > 0.5f;

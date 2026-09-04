@@ -89,6 +89,7 @@ public:
     {
         float inputGainDb   = 0.0f;
         float driveAmount   = 40.0f;   // per cent, the panel's DRIVE
+        float toneAmount    = 100.0f;  // per cent, the panel's TONE
         float mixPercent    = 100.0f;
         float outputLevelDb = 0.0f;
 
@@ -96,7 +97,7 @@ public:
         bool  phaseInvert  = false;
         bool  autoGain     = false;
 
-        int   oversampling = 2;        // 1, 2, 4 or 8
+        int   oversampling = 1;        // 1, 2, 4 or 8
     };
 
     void prepare (double sampleRate, int maxBlockSize, int numChannels, int oversampleFactor = 2);
@@ -132,59 +133,76 @@ public:
 
     static constexpr int kSubBlock = 32;
 
-    /** Where the target's flat bands stop and its lifted ones begin. Both the
-        band the sheen generator is fed from and the band its output is taken
-        in are bounded here. */
-    static constexpr double kResidualSplitHz = 2400.0;
+    //== The character ========================================================
+    /** The constants that decide what this sounds like, gathered in one place
+        and settable, because they were fitted rather than chosen and will be
+        fitted again whenever a better reference turns up.
 
-    /** The two harmonic generators, each a second instance of the same curve
-        at the same drive, fed only from below a corner and read only above it.
-
-        Both exist for the same reason, one octave apart. The `body` generator
-        refills 600 Hz to 2.5 kHz, which a compressive curve suppresses: the
-        midrange of a voice is far weaker than its fundamentals, so it rides
-        through whatever instantaneous gain the fundamentals impose and comes
-        out around 3 dB down, against the reference's 0.7. The `sheen`
-        generator fills 2.5 kHz upwards, which is where the reference puts most
-        of its new energy and where nothing else in the chain can put it.
-
-        Fed from a band that has nothing in it above the corner, and read only
-        above that corner, so what each contributes is harmonic content that
-        was not there before -- not a scaled copy of the programme. That
-        distinction is the whole reason this works: the residual of a
-        compressive curve is part new harmonics and part a negative copy of its
-        input, and amplifying the second part subtracts the programme's own top
-        end. Generating from a band with no top end in it leaves nothing up
-        there to subtract from.
+        The defaults below are the shipping values. Nothing in the plugin ever
+        changes them; the measurement harness does, so that `measure fit` can
+        search this space against a real before/after pair rather than against
+        a synthetic signal that may or may not resemble one. That distinction
+        cost a release: the first fit was made against a test signal with 22 dB
+        less energy above 6 kHz than the actual reference vocal, so the same
+        harmonic generation that measured +8 dB on the test signal measured
+        +0.4 dB on the real thing.
     */
-    static constexpr double kBodySourceHz = 600.0;
+    struct Character
+    {
+        /** Where the target's flat bands stop and its lifted ones begin. */
+        double residualSplitHz = 2400.0;
 
-    /** Negative, and not a typo.
+        /** The two harmonic generators, each a second instance of the same
+            curve at the same drive, fed only from below a corner and read only
+            above it -- so what each contributes is harmonic content that was
+            not there before rather than a scaled copy of the programme.
 
-        The body generator's harmonics land where the programme already has
-        harmonics of its own, and they arrive in antiphase with them: added in
-        the obvious polarity they cancel, and the band measured 3 dB down
-        rather than flat. Inverted, they reinforce. Polarity is load-bearing
-        whenever a generator is fed a band the source already occupies, which
-        is why the sheen generator -- reading a band where the source has
-        almost nothing -- does not care about it and is positive. */
-    static constexpr float kBodyGain = -3.0f;
+            The `body` generator refills 600 Hz to 2.5 kHz, which a compressive
+            curve suppresses. The `sheen` generator fills 2.5 kHz upwards,
+            where the reference puts most of its new energy.
 
-    /** The top of the band the sheen generator is fed from. Wide enough that
-        the 2.4-6 kHz octaves get to make harmonics of their own, which is the
-        only way to put related energy in the top two. */
-    static constexpr double kSheenSourceHz = 6000.0;
+            bodyGain's sign is load-bearing and is fitted, not reasoned out.
+            The body generator's harmonics land where the programme already has
+            harmonics of its own, so they either reinforce or cancel depending
+            on which way round they are added -- and which way is right changed
+            when the voicing arrived. It was -3 when the plugin was all
+            waveshaper; it is +3 now. Whenever a generator is fed a band the
+            source already occupies, this sign has to be re-fitted rather than
+            assumed. */
+        double bodySourceHz  = 600.0;
+        float  bodyGain      = 3.0f;
+        double sheenSourceHz = 6000.0;
+        float  sheenGain     = 4.75f;
 
-    /** How much of the sheen generator's harmonics are added. Fitted to the
-        target's +6.25 dB in 2.5-6 kHz at the default drive. */
-    static constexpr float kSheenGain = 4.75f;
+        /** A shelf on the sheen generator's output only, tilting the top
+            octaves up so 6-18 kHz lifts further than 2.5-6 kHz. It shapes
+            distortion the plugin generated, never the programme, which is why
+            it is not a tone control and is not on the panel. */
+        double sheenHz   = 6000.0;
+        float  sheenTilt = 1.30f;
 
-    /** A shelf on the high residual only, tilting the top octaves up so that
-        6-18 kHz lifts further than 2.5-6 kHz, as the reference does. It shapes
-        distortion the plugin generated, never the programme, which is why it
-        is not a tone control and is not on the panel. */
-    static constexpr double kSheenHz   = 6000.0;
-    static constexpr float  kSheenTilt = 1.25f;
+        /** The voicing.
+
+            Measured, and it is the finding that mattered most: fitting the
+            best linear filter from the reference's dry file to its processed
+            one explains 97 to 98 per cent of the difference. The reference is
+            not mostly harmonic generation. It is a broad bell around 7 kHz of
+            roughly +10 dB, about 2 dB of broadband trim, and a high-pass at
+            the bottom -- with a few per cent of nonlinearity on top.
+
+            No amount of waveshaping reaches those band figures, because the
+            band figures are not made by waveshaping. They are made by an
+            equaliser. This stage is that equaliser, stated plainly rather than
+            hidden inside a curve, and the panel's TONE control scales it from
+            nothing to the fitted shape. */
+        double bellHz     = 7500.0;
+        double bellQ      = 0.90;
+        float  bellGainDb = 8.0f;
+        double highPassHz = 50.0;
+    };
+
+    void setCharacter (const Character& c) noexcept { character = c; }
+    const Character& getCharacter() const noexcept { return character; }
 
 private:
     void applyOversampling (int factor);
@@ -192,15 +210,20 @@ private:
     struct Channel
     {
         AsymmetricShaper shaper, bodyShaper, sheenShaper;
+        Bell             bell;
+        HighPass         highPass;
         OnePole          bodyInput[2], bodySplit;
         OnePole          sheenInput[2], sheenSplit;
         Shelf            sheenTilt;
         DcBlocker        dc;
         Oversampler      oversampler;
 
-        void prepare (double rate) noexcept;
+        void prepare (double rate, const Character&) noexcept;
         void reset() noexcept;
         void setDrive (float drive) noexcept;
+        void setTone (float amountPercent, double rate) noexcept;
+        float toneAmount = 1.0f;
+        const Character* character = nullptr;
         float process (float x) noexcept;
 
         /** One harmonic generator: shape the band below the corner, keep what
@@ -219,9 +242,10 @@ private:
     std::vector<float> dryDelay;
     int dryWrite = 0, dryLength = 1, dryStride = 0;
 
-    Smoother inputGainSm, driveSm, mixSm, outputLevelSm, makeupSm;
+    Smoother inputGainSm, driveSm, mixSm, outputLevelSm, makeupSm, toneSm;
 
     Params params;
+    Character character;
     bool primed = false;
     int maxBlock = 0, maxChannels = 0;
     int currentFactor = 0;
