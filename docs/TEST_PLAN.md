@@ -1,10 +1,35 @@
-# BMO Saturator 0.2.0 — test plan and known gaps
+# BMO Saturator 0.3.0 — test plan and known gaps
 
 **For Frosty.** This is what to listen for, in what order, and what to send
 back. The second half is an honest list of what is wrong or unsettled, so you
 are not spending your ears finding things that are already known.
 
-**What changed since 0.1.0, from your Test 1 report:**
+**What changed in 0.3.0, from your 0.2.0 tracker:**
+
+- **You found one bug three times, and you were right.** Drive 40 overdriven,
+  crossover at 25–30 not 55, and the bottom third of the knob holding all the
+  usable colour are the same finding: the range was about three times too hot.
+  The whole scale is divided by 2.75 — the ratio your ear asked for. Drive 40
+  now does what Drive 15 did, the crossover should land near the middle of the
+  travel, and no preset number changed. Please re-check Test 3: the prediction
+  this time is that the crossover sits at **45–55**, and if it does not, the
+  same one-line fix applies again.
+- **AUTO really did do nothing.** It was a fixed table fitted to one voice at
+  one level; measured on anything else it moved the level by a decibel or two
+  and at high drive pulled the wrong way. It is now a proper detector and holds
+  within 0.05 dB. It is slow on purpose — 1.5 seconds, far slower than a
+  phrase — so it cannot squash anything, and there is a test that fails if
+  someone speeds it up.
+- **The bands got closer at the quieter setting**, because the voicing carries
+  them and the saturation no longer has to. Crest factor improved too: +2.28
+  against the reference's +1.67, from +3.32.
+- **Your bypass delta was oversampling, not a bug.** With SAT off at the
+  default the output is bit-identical to the input — zero difference. With
+  oversampling on, the anti-imaging filters leave a −62 dBFS residual, which is
+  what resampling does. 0.1.0 defaulted to 2x, which is what you measured.
+- **TONE stays**, on your verdict.
+
+**What changed in 0.2.0, from your Test 1 report:**
 
 - **Your numbers were right and 0.1.0 genuinely missed.** Rendering your dry
   file through the old build reproduces your result exactly. The cause was not
@@ -38,17 +63,17 @@ You gave a target: the before-and-after measurements of a vocal you liked
 ("Fuji"), and a second example you did not like ("Preesh BG") as a thing to
 avoid. Measured on your own files this time, rather than on a stand-in:
 
-| | target | 0.2.0 | 0.1.0 |
-|---|---|---|---|
-| 20–150 Hz | −1.22 dB | −0.59 | −0.13 |
-| 150–600 Hz | −1.19 dB | −1.18 | +0.32 |
-| 600 Hz–2.5 kHz | −0.80 dB | −0.98 | −1.47 |
-| **2.5–6 kHz** | **+6.56 dB** | **+6.15** | −0.99 |
-| **6–18 kHz** | **+8.51 dB** | **+8.13** | +0.35 |
-| crest factor | +1.67 dB | +3.32 | −1.84 |
+| | target | 0.3.0 | 0.2.0 | 0.1.0 |
+|---|---|---|---|---|
+| 20–150 Hz | −1.22 dB | −1.43 | −0.59 | −0.13 |
+| 150–600 Hz | −1.19 dB | −0.91 | −1.18 | +0.32 |
+| 600 Hz–2.5 kHz | −0.80 dB | −0.96 | −0.98 | −1.47 |
+| **2.5–6 kHz** | **+6.56 dB** | **+6.56** | +6.15 | −0.99 |
+| **6–18 kHz** | **+8.51 dB** | **+8.07** | +8.13 | +0.35 |
+| crest factor | +1.67 dB | +2.28 | +3.32 | −1.84 |
 
-Every band within half a decibel. Crest factor is the one still out — it opens
-up more than the reference does, because the voicing lifts transient high end.
+Every band within half a decibel, now at a drive setting your ear picked rather
+than one the fit picked.
 
 **Nobody has heard it against your reference file.** That is still the entire
 purpose of this build.
@@ -98,9 +123,10 @@ maths says that tips at about **DRIVE 55**.
 1. One source, AUTO on. Sweep DRIVE from 20 to 100, slowly.
 2. Note where it stops being "colour" and starts being "distortion".
 
-**Report:** the number. If your ear says 40, the drive range is scaled wrong
-and that is a one-line fix. If your ear says 75, the same. This is the single
-most actionable thing you can report.
+**Report:** the number. Last time you said 25–30 and the fix was to divide the
+whole scale by 2.75. The prediction now is **45–55**. If it still comes out
+low, say so and it gets divided again — this is the single most actionable
+thing you can report, and it worked exactly as intended the first time.
 
 ### Test 4 — The bottom of the range
 

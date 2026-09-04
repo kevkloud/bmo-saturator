@@ -112,6 +112,61 @@ exists.
 | Oversampling default | 2x | Off (zero latency) |
 | Drive changes | 32× full-scale spike | no step larger than the programme's |
 
+### And in 0.3.0, after the listening test
+
+| | 0.2.0 | 0.3.0 |
+|---|---|---|
+| Curve drive at Drive 40 | 4.00 | 1.45 |
+| Drive range | 0.66 – 59.25 | 0.24 – 21.54 |
+| Audible crossover | panel 25–30 | panel ~50 |
+| Auto Gain | fixed table, ±2.5 dB error | detector, ±0.05 dB |
+| Bell | 7500 Hz, +8 dB | 7000 Hz, +11 dB |
+| sheenGain / bodyGain | 4.75 / +3.0 | 3.0 / −3.0 |
+| Crest factor vs reference | +3.32 (target +1.67) | +2.28 |
+
+## 2b. What the listening test changed (0.3.0)
+
+Frosty's tracker for 0.2.0 came back with eight tests filled in. Three of them
+were the same finding.
+
+**The drive range was about three times too hot.** Test 1: Drive 40 badly
+over-distorted, 15–20 perfect. Test 3: the audible crossover from colour to
+distortion at 25–30, against a predicted 55. Test 4: the bottom third of the
+knob, documented as deliberately near-dead, is where the usable colour lives.
+All three are one thing, and it is the thing a band-delta fit cannot see: those
+deltas measure where energy lands, not whether the result sounds distorted.
+
+Fixed by dividing the whole scale by 2.75 — the ratio his ear asked for — which
+puts the default at a curve drive of 1.45 and the crossover near the middle of
+the travel. No preset number changed: shifting both ends of the mapping by the
+same factor rescales every position at once. Re-fitting the voicing at the
+quieter operating point lands the bands *closer* to the target than before, and
+brings the crest factor from +3.32 to +2.28 against the reference's +1.67.
+
+**Auto Gain did nothing, and that was true.** Measured across drive and tone
+settings on a signal it had not been fitted to, the old fixed table moved the
+level by 0.5 to 2.5 dB, and at Drive 60 and 100 it pulled the wrong way. It is
+now a detector: input energy against output energy, both averaged with a
+1.5 second time constant, clamped to 12 dB either way, measured before the
+makeup is applied so there is no loop to settle. Holds within 0.05 dB across
+every drive and tone setting on unseen material.
+
+The time constant is what keeps it from being a compressor, and that is now a
+test rather than a claim: switching Auto Gain on must not change the crest
+factor by more than a quarter of a decibel.
+
+**The bypass is bit-exact, and his delta was oversampling.** With SAT off at the
+default (no oversampling) the output is bit-identical to the input -- zero
+difference, not small. With oversampling on there is a −62 dBFS residual from
+the anti-imaging filters' round trip, which is inherent to resampling rather
+than a defect. 0.1.0 defaulted to 2x, which is almost certainly what he
+measured.
+
+**TONE stays.** He liked it, described it as shifting the saturator's apparent
+centre frequency, and reported 100 % as fine once the drive was in range. So
+the open question in §4.6 of the test plan is answered: the plugin carries its
+voicing.
+
 ## 3. Four things the specification got wrong or under-determined
 
 Worth Frosty's time; the first two change how the two references should be

@@ -124,11 +124,9 @@ public:
         in. */
     static float driveFor (float amountPercent) noexcept;
 
-    /** Static output compensation for a given DRIVE, in decibels.
-
-        Static, and derived from the curve rather than from a level detector
-        following the programme. A detector would make this a compressor, which
-        is the one thing this plugin must not become. */
+    /** Where Auto Gain settles, for a given drive, on the harness's reference
+        voice. Kept for the measurement tool and the tests; the plugin itself
+        no longer uses it. See the note on the detector in the .cpp. */
     static float makeupGainDb (float amountPercent) noexcept;
 
     static constexpr int kSubBlock = 32;
@@ -170,9 +168,9 @@ public:
             source already occupies, this sign has to be re-fitted rather than
             assumed. */
         double bodySourceHz  = 600.0;
-        float  bodyGain      = 3.0f;
+        float  bodyGain      = -3.0f;
         double sheenSourceHz = 6000.0;
-        float  sheenGain     = 4.75f;
+        float  sheenGain     = 3.0f;
 
         /** A shelf on the sheen generator's output only, tilting the top
             octaves up so 6-18 kHz lifts further than 2.5-6 kHz. It shapes
@@ -195,10 +193,10 @@ public:
             equaliser. This stage is that equaliser, stated plainly rather than
             hidden inside a curve, and the panel's TONE control scales it from
             nothing to the fitted shape. */
-        double bellHz     = 7500.0;
+        double bellHz     = 7000.0;
         double bellQ      = 0.90;
-        float  bellGainDb = 8.0f;
-        double highPassHz = 50.0;
+        float  bellGainDb = 11.0f;
+        double highPassHz = 40.0;
     };
 
     void setCharacter (const Character& c) noexcept { character = c; }
@@ -206,6 +204,7 @@ public:
 
 private:
     void applyOversampling (int factor);
+    void updateAutoGain (double blockInput, double blockProcessed, int samples) noexcept;
 
     struct Channel
     {
@@ -243,6 +242,23 @@ private:
     int dryWrite = 0, dryLength = 1, dryStride = 0;
 
     Smoother inputGainSm, driveSm, mixSm, outputLevelSm, makeupSm, toneSm;
+
+    /** Auto Gain's detector: the energy going into the saturation and the
+        energy coming out of it, each averaged over about a second and a half.
+
+        Slow on purpose, and the slowness is the whole design. A fast detector
+        that followed the programme would be a compressor, which is the one
+        thing this plugin must not become; at this time constant it cannot
+        respond to anything inside a phrase, so it moves the level and leaves
+        the dynamics alone. A test asserts that switching it on changes the
+        crest factor by less than a quarter of a decibel.
+
+        The first version of this was a fixed table fitted to one voice at one
+        level. It was inaudible on other material and at some settings pulled
+        the wrong way -- which is what "AUTO does nothing" in the test report
+        turned out to mean. */
+    double inputEnergy = 0.0, processedEnergy = 0.0;
+    float  autoGainCoeff = 0.0f;
 
     Params params;
     Character character;

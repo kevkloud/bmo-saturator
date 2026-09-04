@@ -144,6 +144,11 @@ void DspCore::prepare (double newSampleRate, int maxBlockSize, int numChannels,
     // an automation ramp is audible as a flutter on sustained material.
     driveSm.prepare (controlRate, 40.0);
 
+    // Auto Gain's detector. 1.5 seconds: slower than any phrase, so it cannot
+    // act on the programme's dynamics.
+    autoGainCoeff = (float) (1.0 - std::exp (-1.0 / (controlRate * 1.5)));
+    inputEnergy = processedEnergy = 0.0;
+
     applyOversampling (oversampleFactor);
 
     primed = false;
@@ -182,26 +187,27 @@ void DspCore::setParams (const Params& p) noexcept
 {
     params = p;
 
-    const auto drive  = driveFor (p.driveAmount);
-    const auto makeup = p.autoGain ? dbToGain (makeupGainDb (p.driveAmount)) : 1.0f;
+    const auto drive = driveFor (p.driveAmount);
 
     inputGainSm  .setTarget (dbToGain (p.inputGainDb));
     outputLevelSm.setTarget (dbToGain (p.outputLevelDb));
     mixSm        .setTarget (std::clamp (p.mixPercent, 0.0f, 100.0f) * 0.01f);
     driveSm      .setTarget (drive);
-    makeupSm     .setTarget (makeup);
     toneSm       .setTarget (std::clamp (p.toneAmount, 0.0f, 100.0f));
+
+    if (! p.autoGain)
+        makeupSm.setTarget (1.0f);
 
     if (primed)
         return;
 
     toneSm.snap (std::clamp (p.toneAmount, 0.0f, 100.0f));
+    makeupSm.snap (1.0f);
 
     inputGainSm  .snap (dbToGain (p.inputGainDb));
     outputLevelSm.snap (dbToGain (p.outputLevelDb));
     mixSm        .snap (std::clamp (p.mixPercent, 0.0f, 100.0f) * 0.01f);
     driveSm      .snap (drive);
-    makeupSm     .snap (makeup);
     primed = true;
 }
 
@@ -224,7 +230,8 @@ void DspCore::process (float* const* channelData, int numChannels, int numSample
         const auto n = std::min (kSubBlock, numSamples - start);
 
         const auto inGain   = inputGainSm.tick();
-        const auto outGain  = outputLevelSm.tick() * makeupSm.tick();
+        const auto outGain  = outputLevelSm.tick();
+        const auto makeup   = makeupSm.tick();
         const auto wet      = mixSm.tick();
         const auto dryLevel = 1.0f - wet;
         const auto drive    = driveSm.tick();
@@ -235,6 +242,8 @@ void DspCore::process (float* const* channelData, int numChannels, int numSample
             channels[(size_t) ch].setDrive (drive);
             channels[(size_t) ch].setTone (tone, effectiveRate);
         }
+
+        double blockInput = 0.0, blockProcessed = 0.0;
 
         // Samples outermost so the shared dry-delay cursor advances once per
         // frame rather than once per channel.
@@ -253,20 +262,59 @@ void DspCore::process (float* const* channelData, int numChannels, int numSample
                 dry[(size_t) dryWrite] = input;
                 const auto delayed = dry[(size_t) readIndex];
 
+                const auto driven = input * inGain * polarity;
+
                 float buffer[Oversampler::kMaxFactor] {};
-                channel.oversampler.upsample (input * inGain * polarity, buffer);
+                channel.oversampler.upsample (driven, buffer);
 
                 for (int j = 0; j < factor; ++j)
                     buffer[j] = params.saturationIn ? channel.process (buffer[j]) : buffer[j];
 
-                const auto processed = channel.oversampler.downsample (buffer) * outGain;
+                const auto shaped = channel.oversampler.downsample (buffer);
 
-                data[i] = processed * wet + delayed * dryLevel;
+                // Measured before the makeup is applied, so the detector reads
+                // what the stage did rather than what it and its own
+                // compensation did together -- a loop that would take a while
+                // to settle and could be made to oscillate.
+                blockInput     += (double) driven * driven;
+                blockProcessed += (double) shaped * shaped;
+
+                data[i] = shaped * makeup * outGain * wet + delayed * dryLevel;
             }
 
             dryWrite = (dryWrite + 1) % dryLength;
         }
+
+        updateAutoGain (blockInput, blockProcessed, n * activeChannels);
     }
+}
+
+//==============================================================================
+void DspCore::updateAutoGain (double blockInput, double blockProcessed, int samples) noexcept
+{
+    if (samples <= 0)
+        return;
+
+    const auto in  = blockInput  / (double) samples;
+    const auto out = blockProcessed / (double) samples;
+
+    // Silence carries no information about the gain and would drag both
+    // averages towards zero, so the detector holds its reading through it.
+    constexpr double kFloor = 1.0e-9;          // about -90 dBFS
+
+    if (in > kFloor && out > kFloor)
+    {
+        inputEnergy     += (double) autoGainCoeff * (in  - inputEnergy);
+        processedEnergy += (double) autoGainCoeff * (out - processedEnergy);
+    }
+
+    if (! params.autoGain || inputEnergy <= kFloor || processedEnergy <= kFloor)
+        return;
+
+    // Clamped, because a level match is a convenience and should never be
+    // capable of a surprise: at most 12 dB either way.
+    const auto wanted = std::sqrt (inputEnergy / processedEnergy);
+    makeupSm.setTarget ((float) std::clamp (wanted, 0.25, 4.0));
 }
 
 } // namespace bmosat

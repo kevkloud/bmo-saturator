@@ -51,32 +51,32 @@ inline std::vector<Factory> factory()
 
         { "Vocal Sheen", {
             { kInputGain, 2.0f }, { kDrive, 34.0f },
-            { kOutputLevel, 1.65f } } },
+            { kOutputLevel, -1.40f } } },
 
         { "Vocal Front", {
             { kInputGain, 5.0f }, { kDrive, 52.0f },
-            { kOutputLevel, -2.11f } } },
+            { kOutputLevel, -3.33f } } },
 
         { "Whisper", {                             // barely there, for a take that only needs air
             { kDrive, 18.0f }, { kMix, 60.0f }, { kTone, 55.0f },
-            { kOutputLevel, 1.16f } } },
+            { kOutputLevel, 0.86f } } },
 
         { "Drum Bus Glue", {
             { kInputGain, 3.0f }, { kDrive, 46.0f }, { kTone, 40.0f },
             { kMix, 70.0f },                       // parallel, so the transients stay whole
-            { kOutputLevel, 1.49f } } },
+            { kOutputLevel, -0.77f } } },
 
         { "Snare Edge", {
             { kInputGain, 6.0f }, { kDrive, 66.0f },
-            { kOutputLevel, -4.63f } } },
+            { kOutputLevel, -3.59f } } },
 
         { "Bass Warmth", {                         // no air on a bass; the curve only
             { kInputGain, 4.0f }, { kDrive, 30.0f }, { kTone, 0.0f },
-            { kOutputLevel, -0.17f } } },
+            { kOutputLevel, -3.25f } } },
 
         { "Guitar Grit", {
             { kInputGain, 8.0f }, { kDrive, 78.0f },
-            { kOutputLevel, -7.61f } } },
+            { kOutputLevel, -5.44f } } },
 
         { "Mix Bus Colour", {
             { kDrive, 24.0f }, { kMix, 45.0f },    // gentle, in parallel, level-matched
@@ -87,7 +87,7 @@ inline std::vector<Factory> factory()
         { "Ruined", {
             { kInputGain, 10.0f }, { kDrive, 100.0f },
             { kOversampling, 2.0f },               // 4x: it needs the headroom up there
-            { kOutputLevel, -10.41f } } },
+            { kOutputLevel, -7.73f } } },
     };
 }
 

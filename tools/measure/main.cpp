@@ -652,7 +652,7 @@ void printReport (const Report& r, double rate, bool showTargets)
     figures written down in the brief, since the files are the ground truth and
     the brief is a summary of them.
 */
-int fitToFiles (const std::string& dryPath, const std::string& targetPath)
+int fitToFiles (const std::string& dryPath, const std::string& targetPath, double fixedDrive = 0.0)
 {
     std::vector<float> dry, target;
     double dryRate = kSampleRate, targetRate = kSampleRate;
@@ -724,6 +724,13 @@ int fitToFiles (const std::string& dryPath, const std::string& targetPath)
     };
 
     Candidate best;
+
+    if (fixedDrive > 0.0)
+    {
+        best.curveDrive = fixedDrive;
+        std::printf ("drive pinned at %.2f\n\n", fixedDrive);
+    }
+
     auto bestError = score (best);
 
     std::printf ("searching");
@@ -754,8 +761,12 @@ int fitToFiles (const std::string& dryPath, const std::string& targetPath)
                 { 0.5, 0.7, 0.9, 1.1, 1.4, 1.8 });
         tryAll ([] (Candidate& c, double v) { c.highPassHz = v; },
                 { 1.0, 20, 30, 40, 50, 65 });
-        tryAll ([] (Candidate& c, double v) { c.curveDrive = v; },
-                { 2, 4, 8, 12, 16, 24, 32, 48, 64 });
+        // The drive is pinned when a listener has already chosen it. Band
+        // deltas cannot hear distortion; ears can, and when the two disagree
+        // the ear is the instrument that matters.
+        if (fixedDrive <= 0.0)
+            tryAll ([] (Candidate& c, double v) { c.curveDrive = v; },
+                    { 2, 4, 8, 12, 16, 24, 32, 48, 64 });
         tryAll ([] (Candidate& c, double v) { c.sheenGain = (float) v; },
                 { 0, 1, 2, 3, 5, 8, 12 });
         tryAll ([] (Candidate& c, double v) { c.sheenTilt = (float) v; },
@@ -1046,11 +1057,11 @@ int main (int argc, char** argv)
     {
         if (argc < 4)
         {
-            std::printf ("usage: measure fitfile dry.wav target.wav\n");
+            std::printf ("usage: measure fitfile dry.wav target.wav [fixed curve drive]\n");
             return 1;
         }
 
-        return fitToFiles (argv[2], argv[3]);
+        return fitToFiles (argv[2], argv[3], argc > 4 ? std::atof (argv[4]) : 0.0);
     }
 
     if (command == "compare")

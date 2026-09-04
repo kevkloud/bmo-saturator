@@ -10,18 +10,31 @@ namespace bmosat::tables
 //==============================================================================
 /** DRIVE, as the panel reads it, mapped to the shaper's positive-half drive.
 
-    The two ends are the design decision. kDriveMin is not zero: at DRIVE 0 the
-    curve is still the curve, sitting far enough below its knee to be nearly
-    linear, so the control changes how much of a character there is rather than
-    fading one in. kDriveMax is where a vocal at a sensible working level is
-    unmistakably saturated and no further -- past it the curve stops adding
-    harmonics and starts removing signal.
+    The two ends are the design decision, and they were re-scaled in 0.3.0
+    after a listening test rather than by measurement.
+
+    The band deltas cannot hear distortion. Fitted against them alone, the
+    default landed at a curve drive of 4.0, and three independent listening
+    tests said the same thing about it: DRIVE 40 was already overdriven, the
+    audible crossover from colour to distortion sat at 25-30 rather than the
+    predicted 55, and everything useful was bunched into the bottom third of
+    the control. All one finding -- the range was about three times too hot.
+
+    So the whole scale is divided by 2.75, which is the ratio the ear asked
+    for. The default now produces a curve drive of 1.45, the crossover lands
+    near the middle of the travel where it belongs, and the preset numbers did
+    not have to change: shifting both ends by the same factor rescales every
+    position on the knob at once.
+
+    kDriveMin is still not zero: at DRIVE 0 the curve is still the curve,
+    sitting far enough below its knee to be nearly linear, so the control
+    changes how much of a character there is rather than fading one in.
 
     Geometric between them, because what the ear follows is the ratio between
     where the signal sits and where the knee is, not the difference.
 */
-inline constexpr float kDriveMin = 0.66f;
-inline constexpr float kDriveMax = 59.25f;
+inline constexpr float kDriveMin = 0.24f;
+inline constexpr float kDriveMax = 21.54f;
 
 //==============================================================================
 /** Static output compensation, in decibels, at eleven points across the DRIVE

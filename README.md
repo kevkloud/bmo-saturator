@@ -32,18 +32,17 @@ time — see the release notes for the two-click way past it.
 Against the reference vocal itself — the actual dry and processed files, not a
 synthetic stand-in. Reference preset: Drive 40 %, Tone 100 %, Auto Gain on.
 
-| band | BMO 0.2.0 | Fuji target | 0.1.0, for comparison |
+| band | BMO 0.3.0 | Fuji target | 0.1.0, for comparison |
 |---|---|---|---|
-| 20 Hz – 150 Hz | −0.59 dB | −1.22 dB | −0.13 dB |
-| 150 Hz – 600 Hz | −1.18 dB | −1.19 dB | +0.32 dB |
-| 600 Hz – 2.5 kHz | −0.98 dB | −0.80 dB | −1.47 dB |
-| **2.5 kHz – 6 kHz** | **+6.15 dB** | **+6.56 dB** | −0.99 dB |
-| **6 kHz – 18 kHz** | **+8.13 dB** | **+8.51 dB** | +0.35 dB |
-| crest factor change | +3.32 dB | +1.67 dB | −1.84 dB |
+| 20 Hz – 150 Hz | −1.43 dB | −1.22 dB | −0.13 dB |
+| 150 Hz – 600 Hz | −0.91 dB | −1.19 dB | +0.32 dB |
+| 600 Hz – 2.5 kHz | −0.96 dB | −0.80 dB | −1.47 dB |
+| **2.5 kHz – 6 kHz** | **+6.56 dB** | **+6.56 dB** | −0.99 dB |
+| **6 kHz – 18 kHz** | **+8.07 dB** | **+8.51 dB** | +0.35 dB |
+| crest factor change | +2.28 dB | +1.67 dB | −1.84 dB |
 
-Every band is within half a decibel. Crest factor is the one metric still out:
-the voicing lifts transient high end, so the result opens up more than the
-reference does. Second harmonic leads third by about 6 dB at the default drive.
+Every band within half a decibel, and at a drive setting chosen by ear rather
+than by the fit — see [what a listening test changed](#what-a-listening-test-changed).
 
 ```bash
 ./build/measure compare dry.wav processed.wav   # any before/after pair
@@ -86,9 +85,35 @@ leaves nothing up there to subtract from.
 
 **Dynamics.** The dry path through the stage is never attenuated and the added
 residual is largest where the waveform moves fastest — on transients. The crest
-factor therefore rises rather than falls. Nothing here follows the programme
-with a level detector; Auto Gain is a fixed number per Drive setting, because
-anything else would make this a compressor.
+factor therefore rises rather than falls. Auto Gain does follow the programme,
+but at a 1.5-second time constant it cannot respond to anything inside a
+phrase: it moves the level and leaves the dynamics alone, which a test checks
+rather than assumes.
+
+## What a listening test changed
+
+Fitting to band deltas got the spectrum right and the amount wrong. A band
+delta cannot hear distortion, and three separate observations from the first
+listening test said the same thing: Drive 40 was already overdriven, the
+audible crossover from colour to distortion sat at 25–30 rather than the
+predicted 55, and the bottom third of the knob — assumed to be dead travel —
+was where the useful colour lived.
+
+That is one finding, not three: **the drive range was about three times too
+hot.** The whole scale is now divided by 2.75, which is the ratio the ear asked
+for. The crossover lands near the middle of the travel, and no preset number
+had to change — shifting both ends of the mapping rescales every position on
+the knob at once. The bands are *closer* to the target at the quieter setting,
+because the voicing carries them and the saturation no longer has to.
+
+The other thing that test found: **Auto Gain did nothing.** It was a fixed
+table fitted to one voice at one level, so on any other material it was
+inaudible, and at some settings it pulled the wrong way. It is now a real
+detector — input energy against output energy, averaged over 1.5 seconds —
+which holds the level within 0.05 dB on material it has never seen. The time
+constant is the design: far slower than any phrase, so it moves the level
+without touching the dynamics, and a test asserts that switching it on changes
+the crest factor by less than a quarter of a decibel.
 
 ## What the reference actually is
 
@@ -190,7 +215,7 @@ the better of the two.
 | **OUTPUT** | Level. |
 | **SAT** | Takes the saturation out of circuit. A true null. |
 | **Ø** | Polarity. |
-| **AUTO** | Static level match, so Drive can be judged on tone rather than loudness. |
+| **AUTO** | Level match, so Drive can be judged on tone rather than loudness. A 1.5-second detector — slow enough that it cannot act on dynamics, and tested for it. |
 
 No numeric readouts, by design — a plus, a minus where there is something to
 subtract, and nothing else. Nothing on the panel adjusts the asymmetry or the
