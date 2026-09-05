@@ -1,50 +1,50 @@
-**Third build, from your 0.2.0 test tracker.** Everything in it was actionable
-and one finding turned up three times.
+**Fourth build, from your 0.3.0 results.** Two fixes and a confirmation.
 
-## What changed
+## The polarity bug — and there was more of it than you could see
 
-**The drive range was about three times too hot — you found it three ways.**
-Drive 40 overdriven (Test 1), the audible crossover at 25–30 rather than the
-predicted 55 (Test 3), and the bottom third of the knob holding all the usable
-colour when it was documented as near-dead travel (Test 4). One finding. The
-whole scale is now divided by 2.75, the ratio your ear asked for:
+You found that the button does nothing at Mix 0. Correct: polarity was applied
+to the input, so the dry path of the Mix control never saw it.
 
-- **Drive 40 now does what Drive 15 did.**
-- The crossover from colour to overdrive should land near **45–55**. Test 3
-  again, please — if it still comes out low, the same one-line fix applies.
-- No preset number changed. Shifting both ends of the mapping rescales every
-  position on the knob at once, so the presets moved with it.
+Measuring it turned up a second fault behind the first. With SAT in, the flip
+was happening *before* the saturation — and because the curve is asymmetric,
+flipping the input is not the same as flipping the output. Two instances with
+one flipped summed to −14 dB instead of to silence. The button was quietly
+changing which harmonics came out, which is the one thing a polarity control
+must never do.
 
-Re-fitting the voicing at the quieter setting puts the bands *closer* to the
-reference than 0.2.0 managed, and improves the dynamics figure:
+Fixed exactly as you suggested: **polarity is now the last stage before
+Output.** There is a test that requires two instances, one flipped, to sum to
+*exact* silence across 36 combinations of SAT, MIX, DRIVE and OUTPUT.
 
-| band | target | 0.3.0 | 0.2.0 |
-|---|---|---|---|
-| 20–150 Hz | −1.22 dB | −1.43 | −0.59 |
-| 150–600 Hz | −1.19 dB | −0.91 | −1.18 |
-| 600 Hz–2.5 kHz | −0.80 dB | −0.96 | −0.98 |
-| **2.5–6 kHz** | **+6.56 dB** | **+6.56** | +6.15 |
-| **6–18 kHz** | **+8.51 dB** | **+8.07** | +8.13 |
-| crest factor | +1.67 dB | **+2.28** | +3.32 |
+**Output moved with it** and now applies to the blend rather than to the wet
+path alone — at Mix 50 it used to be a wet trim, which is not what the name
+says.
 
-**AUTO really did do nothing — fixed properly.** It was a fixed table fitted to
-one voice at one level, so on anything else it moved the level by a decibel or
-two, and at Drive 60 and 100 it pulled the wrong way. It is now a real
-detector: input energy against output energy, and it holds the level within
-0.05 dB on material it has never seen.
+## Vocal Front
 
-It is slow on purpose — a 1.5 second time constant, far slower than any
-phrase — so it moves the level without touching the dynamics. There is a test
-that fails if anyone speeds it up, because a fast one would make this a
-compressor, which is the one thing the brief says it must not be.
+Pulled back to **Drive 46 with +1.5 dB input**, from Drive 52 with +5 dB. You
+were right that the gain was doing the damage rather than the drive: 5 dB on
+top of 52 put it past the crossover on every source.
 
-**Your bypass delta was oversampling, not a bug.** With SAT off at the default
-the output is bit-identical to the input — zero difference, measured. With
-oversampling on, the anti-imaging filters leave a −62 dBFS residual, which is
-what resampling does anywhere. 0.1.0 defaulted to 2x, which is what you had.
+## Confirmed, no change needed
 
-**TONE stays**, on your verdict — described as shifting the saturator's
-apparent centre frequency, and fine at 100 % once the drive is in range.
+- **Crossover at 55–58**, against the predicted 45–55. Close enough that the
+  drive scale is settled. Thank you for re-running that one — it was the
+  measurement that could not be made from here.
+- **TONE stays**, on your verdict. That closes the open design question: this
+  is a saturator with a voicing, not a pure-harmonics box.
+
+## Sibilance — noted, not fixed
+
+You heard "S" sounds sitting slightly forward of the Fuji file, and the
+measurement agrees (crest factor +2.28 against +1.67). Moving the voicing bell
+from 7 kHz to 8 kHz to get off the sibilance range was tried and measures worse
+on both upper bands and on crest, so it stays. Pulling TONE back reduces it at
+the cost of the band match, which is a per-source trade. Left as a known
+difference on your call that it is low priority.
+
+Band match against the reference is unchanged from 0.3.0 — 2.5–6 kHz exact,
+everything else within half a decibel.
 
 ## Downloads
 
@@ -57,23 +57,8 @@ Neither is code-signed; `INSTALL.md` inside the zip has the two clicks past it.
 
 ## Where to start
 
-**Test 3 first this time.** Sweep DRIVE on one source with AUTO on and say
-where colour becomes distortion. The prediction is 45–55. That one number
-decides whether the scale is now right.
-
-Then Test 1 again — Reference preset, A/B against the Fuji file — and Test 2
-across the presets, which should no longer need the drive pulled back.
-
-## Still open
-
-- **Crest factor still runs a little hot**: +2.28 against the reference's
-  +1.67, down from +3.32. Better, not matched.
-- **The asymmetry figures in the original brief are not in the reference
-  files.** Measured on the actual pair, Fuji's average gains are 0.965 / 1.015
-  — an asymmetry of 0.05, not the 0.22 in the brief. Every other figure
-  reproduces exactly. The test that used to pin those numbers now checks the
-  shape of the curve instead.
-- **Still not validated by ear against the Fuji file itself.** Test 1 is the
-  one that closes this.
+Test 7 — the polarity null, in the states you found it failing. Then anything
+you have not tried yet; the tonal side has been stable for two builds and the
+remaining open items are all things only ears can settle.
 
 <https://github.com/kevkloud/bmo-saturator#readme>

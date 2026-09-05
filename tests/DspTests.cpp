@@ -553,6 +553,52 @@ void testToneOffIsNeutral()
            "Tone at 100 high-passes 50 Hz");
 }
 
+/** The polarity switch flips what leaves the plugin, in every state.
+
+    Reported from a listening session: with Mix at 0 the button did nothing.
+    Measuring it found that and a second fault behind it. Polarity was applied
+    to the input, so the dry path of the Mix control never saw it -- hence the
+    report -- and because the curve is asymmetric, -f(-x) is not f(x), so
+    flipping ahead of the shaper changed which harmonics came out. Engaging a
+    polarity switch altered the sound, which is the one thing it must never do.
+
+    The invariant, checked across every combination that matters: two instances
+    of the plugin with identical settings, one flipped, must sum to exact
+    silence.
+*/
+void testPolarityFlipsEverything()
+{
+    const auto dry = voice (1.0);
+
+    for (bool sat : { true, false })
+        for (float mix : { 0.0f, 50.0f, 100.0f })
+            for (float drive : { 0.0f, 40.0f, 100.0f })
+                for (float outputDb : { -6.0f, 0.0f })
+                {
+                    auto params = defaults();
+                    params.saturationIn = sat;
+                    params.mixPercent = mix;
+                    params.driveAmount = drive;
+                    params.outputLevelDb = outputDb;
+
+                    params.phaseInvert = false;
+                    const auto straight = render (dry, params);
+
+                    params.phaseInvert = true;
+                    const auto flipped = render (dry, params);
+
+                    double worst = 0.0;
+
+                    for (size_t i = 2048; i < dry.size(); ++i)
+                        worst = std::max (worst, (double) std::abs (straight[i] + flipped[i]));
+
+                    check (worst == 0.0,
+                           "polarity nulls exactly with Sat " + std::string (sat ? "in" : "out")
+                             + ", Mix " + std::to_string ((int) mix)
+                             + ", Drive " + std::to_string ((int) drive));
+                }
+}
+
 /** With the saturation switched out, what comes back is what went in. */
 void testBypassNulls()
 {
@@ -795,6 +841,7 @@ int main()
     testDriveScalesMonotonically();
     testDriveChangesAreClean();
     testToneOffIsNeutral();
+    testPolarityFlipsEverything();
     testBypassNulls();
     testDryPathIsDelayMatched();
     testNoDcOffset();

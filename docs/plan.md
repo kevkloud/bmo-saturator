@@ -112,6 +112,16 @@ exists.
 | Oversampling default | 2x | Off (zero latency) |
 | Drive changes | 32× full-scale spike | no step larger than the programme's |
 
+### And in 0.4.0, after the second listening pass
+
+| | 0.3.0 | 0.4.0 |
+|---|---|---|
+| Polarity | applied to the input | applied to the output, after the blend |
+| Polarity with Mix < 100 | did nothing to the dry path | flips everything |
+| Polarity with Sat in | changed the harmonics | flips, and nothing else |
+| Output control | scaled the wet path only | scales the blend |
+| Vocal Front preset | Drive 52, Input +5 dB | Drive 46, Input +1.5 dB |
+
 ### And in 0.3.0, after the listening test
 
 | | 0.2.0 | 0.3.0 |
@@ -166,6 +176,29 @@ measured.
 centre frequency, and reported 100 % as fine once the drive was in range. So
 the open question in §4.6 of the test plan is answered: the plugin carries its
 voicing.
+
+## 2c. The polarity bug (0.4.0)
+
+Reported from the 0.3.0 listening pass: the polarity button does nothing when
+Mix is at 0. Measuring it found that, and a second fault sitting behind it that
+the listening test could not have separated.
+
+Polarity was applied to the *input*. So the dry path of the Mix control never
+saw it -- which is the reported symptom -- and, because the curve is
+asymmetric, `-f(-x)` is not `f(x)`: flipping ahead of the shaper changed which
+harmonics came out. With Sat in and Mix at 100, two instances with one flipped
+summed to -14 dB rather than to silence. Engaging a polarity switch was
+altering the sound, which is the one thing it must never do.
+
+Both are the same fix, and it is the one the report suggested: polarity is now
+the last thing that happens to the signal, after the blend, with Output after
+it. A test now sweeps Sat in/out, Mix 0/50/100, Drive 0/40/100 and Output
+0/-6 dB, and requires two instances with one flipped to sum to *exact* silence
+in all thirty-six combinations.
+
+Output moved with it. It used to scale only the wet path, so at Mix 50 the
+control was a wet trim rather than an output level; it now applies to the
+blend, which is what the name says and what the report assumed.
 
 ## 3. Four things the specification got wrong or under-determined
 

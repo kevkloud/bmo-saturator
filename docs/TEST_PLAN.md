@@ -1,8 +1,30 @@
-# BMO Saturator 0.3.0 — test plan and known gaps
+# BMO Saturator 0.4.0 — test plan and known gaps
 
 **For Frosty.** This is what to listen for, in what order, and what to send
 back. The second half is an honest list of what is wrong or unsettled, so you
 are not spending your ears finding things that are already known.
+
+**What changed in 0.4.0, from your 0.3.0 results:**
+
+- **The polarity bug is fixed, and there was more of it than you could see.**
+  You found that the button does nothing at Mix 0 — correct, the dry path never
+  saw it. Measuring also found that with SAT in it was flipping *before* the
+  saturation, and because the curve is asymmetric that changed which harmonics
+  came out: two instances with one flipped summed to −14 dB instead of silence.
+  So the button was altering the sound, which is the one thing a polarity
+  control must never do. Fixed exactly as you suggested — polarity is now the
+  last stage before Output — and there is a test that requires an exact null
+  across 36 combinations of SAT, MIX, DRIVE and OUTPUT.
+- **Output now applies to the blend, not just the wet path.** It used to be a
+  wet trim at Mix < 100, which is not what the name says.
+- **Vocal Front pulled back** to Drive 46 with +1.5 dB input, from Drive 52
+  with +5 dB. You were right that the gain was doing the damage.
+- **Crossover confirmed at 55–58** against the predicted 45–55. Close enough
+  that the drive scale is now settled; no further change.
+- **TONE confirmed keeping**, on your verdict, and gap 4.6 is closed.
+- **Sibilance is noted, not fixed.** Moving the bell up to 8 kHz to get off the
+  "S" range measures worse on both bands and on crest factor, so it stays at
+  7 kHz. See gap 4.1.
 
 **What changed in 0.3.0, from your 0.2.0 tracker:**
 
@@ -200,13 +222,19 @@ pointed at a bounce and will report all four numbers for that specific file.
 Things already found. **You do not need to look for these** — but if any of
 them bothers you in practice, say so, because that changes the priority.
 
-### 4.1 Crest factor opens up more than the reference
+### 4.1 Sibilance sits slightly forward of the reference
 
-The reference's transients open up by 1.67 dB; this build gives 3.32 dB. Both
-go the right way — nothing is being squashed — but this is livelier than Fuji.
-The cause is the voicing lifting transient high end. Pulling TONE back reduces
-it, at the cost of the band match. If it sounds spiky or ticky on consonants,
-that is this, and it is worth telling me.
+You heard it on Test 1 — "S" sounds poke out a touch more than the Fuji file —
+and the measurement agrees: crest factor is +2.28 against the reference's
++1.67, so transients open up more than they should.
+
+Tried and rejected: moving the voicing bell from 7 kHz to 8 kHz, off the
+sibilance range. It measures worse on both upper bands *and* on crest factor,
+so it stays where it is. Pulling TONE back reduces the effect at the cost of
+the band match, which is a trade you can make per-source.
+
+Left as a known difference rather than chased further, on your call that it is
+low priority.
 
 ### 4.2 The asymmetry measurement may have misjudged Preesh BG
 

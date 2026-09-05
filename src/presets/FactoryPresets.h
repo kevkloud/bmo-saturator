@@ -53,9 +53,13 @@ inline std::vector<Factory> factory()
             { kInputGain, 2.0f }, { kDrive, 34.0f },
             { kOutputLevel, -1.40f } } },
 
+        // Pulled back in 0.4.0: at Drive 52 with 5 dB of input on top of it,
+        // this sat past the point where the curve turns from colour into
+        // overdrive, and it distorted on every source it was tried on. The
+        // gain was doing most of the damage.
         { "Vocal Front", {
-            { kInputGain, 5.0f }, { kDrive, 52.0f },
-            { kOutputLevel, -3.33f } } },
+            { kInputGain, 1.5f }, { kDrive, 46.0f },
+            { kOutputLevel, -0.57f } } },
 
         { "Whisper", {                             // barely there, for a take that only needs air
             { kDrive, 18.0f }, { kMix, 60.0f }, { kTone, 55.0f },

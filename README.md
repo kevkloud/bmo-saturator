@@ -32,7 +32,7 @@ time — see the release notes for the two-click way past it.
 Against the reference vocal itself — the actual dry and processed files, not a
 synthetic stand-in. Reference preset: Drive 40 %, Tone 100 %, Auto Gain on.
 
-| band | BMO 0.3.0 | Fuji target | 0.1.0, for comparison |
+| band | BMO 0.4.0 | Fuji target | 0.1.0, for comparison |
 |---|---|---|---|
 | 20 Hz – 150 Hz | −1.43 dB | −1.22 dB | −0.13 dB |
 | 150 Hz – 600 Hz | −0.91 dB | −1.19 dB | +0.32 dB |
@@ -212,9 +212,9 @@ the better of the two.
 | **DRIVE** | Saturation intensity, 0–100 %. The character does not change across the range — only how much of it there is. |
 | **TONE** | The fitted voicing: a bell around 7 kHz, a high-pass at the bottom, scaled from nothing to the reference's own curve. At 0 it is out of circuit entirely, filter and all. |
 | **MIX** | Wet/dry, delay-matched so a partial blend cannot comb. |
-| **OUTPUT** | Level. |
+| **OUTPUT** | Level, applied to the blend rather than to the wet path alone. |
 | **SAT** | Takes the saturation out of circuit. A true null. |
-| **Ø** | Polarity. |
+| **Ø** | Polarity. The last stage before Output, so it flips what leaves the plugin whatever else is set — including at Mix 0, and without changing which harmonics the curve made. |
 | **AUTO** | Level match, so Drive can be judged on tone rather than loudness. A 1.5-second detector — slow enough that it cannot act on dynamics, and tested for it. |
 
 No numeric readouts, by design — a plus, a minus where there is something to

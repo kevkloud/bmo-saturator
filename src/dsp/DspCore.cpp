@@ -262,7 +262,7 @@ void DspCore::process (float* const* channelData, int numChannels, int numSample
                 dry[(size_t) dryWrite] = input;
                 const auto delayed = dry[(size_t) readIndex];
 
-                const auto driven = input * inGain * polarity;
+                const auto driven = input * inGain;
 
                 float buffer[Oversampler::kMaxFactor] {};
                 channel.oversampler.upsample (driven, buffer);
@@ -279,7 +279,21 @@ void DspCore::process (float* const* channelData, int numChannels, int numSample
                 blockInput     += (double) driven * driven;
                 blockProcessed += (double) shaped * shaped;
 
-                data[i] = shaped * makeup * outGain * wet + delayed * dryLevel;
+                // Polarity is the last thing that happens to the signal, and
+                // Output the last thing after that. Both apply to the blend
+                // rather than to the wet path alone, which is what makes the
+                // button mean "flip what leaves the plugin" in every state.
+                //
+                // It used to be applied to the input instead, and that was
+                // wrong twice over. The dry path of the Mix control never saw
+                // it, so at Mix 0 the button did nothing at all. And because
+                // the curve is asymmetric, -f(-x) is not f(x): flipping ahead
+                // of the shaper changed which harmonics came out, so engaging
+                // a polarity switch altered the sound. A polarity control has
+                // one job and it is not that.
+                const auto blended = shaped * makeup * wet + delayed * dryLevel;
+
+                data[i] = blended * polarity * outGain;
             }
 
             dryWrite = (dryWrite + 1) % dryLength;
