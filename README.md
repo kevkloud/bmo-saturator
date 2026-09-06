@@ -1,5 +1,9 @@
 # BMO Saturator
 
+**Merged into [BMO Mix Rack](https://github.com/kevkloud/bmo-mix-rack) as
+`modules/sat`.** This repo is archived and no longer developed; all further
+work happens in the monorepo.
+
 A VST3 / AU saturator for Ableton Live, Logic, and other hosts. Part of the BMO
 suite; built to a specification derived from before-and-after measurements of a
 real vocal take rather than from a circuit.
